@@ -1,0 +1,24 @@
+name: dinniss-capacity-performance
+services:
+  dinniss-capacity-performance-db-gold:
+    image: postgres:18.2
+    container_name: dinniss-capacity-performance-db-gold
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_DB: dinniss-capacity-performance-db-gold
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - db-gold-pgdata:/var/lib/postgresql
+      - ./setup:/docker-entrypoint-initdb.d/
+    networks:
+      - db-gold-network
+    restart: always
+
+volumes:
+  db-gold-pgdata:
+
+networks:
+  db-gold-network:
+    driver: bridge
