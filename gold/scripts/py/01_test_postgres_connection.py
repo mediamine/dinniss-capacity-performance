@@ -74,4 +74,3 @@ def test_postgres_connection() -> None:
 
 if __name__ == "__main__":
     test_postgres_connection()
-

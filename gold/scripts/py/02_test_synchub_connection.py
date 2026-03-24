@@ -58,7 +58,9 @@ def test_synchub_connection() -> None:
         # Check ODBC driver
         drivers = pyodbc.drivers()
         if "ODBC Driver 18 for SQL Server" not in drivers:
-            logger.error("ODBC Driver 18 for SQL Server not found. Install it from Microsoft.")
+            logger.error(
+                "ODBC Driver 18 for SQL Server not found. Install it from Microsoft."
+            )
             sys.exit(1)
 
         with pyodbc.connect(connection_string, timeout=10) as conn:
@@ -80,8 +82,10 @@ def test_synchub_connection() -> None:
         sys.exit(1)
 
     # Add warning for SSL bypass
-    logger.warning("TrustServerCertificate=yes is used; enable certificate validation in production for security.")
-    
+    logger.warning(
+        "TrustServerCertificate=yes is used; enable certificate validation in production for security."
+    )
+
     # TODO: Add retry logic
     # max_retries = 3
     # repeat the above connection logic with retries if needed (not implemented here for brevity)
@@ -89,4 +93,3 @@ def test_synchub_connection() -> None:
 
 if __name__ == "__main__":
     test_synchub_connection()
-

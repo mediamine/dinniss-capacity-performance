@@ -28,11 +28,11 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler('logs/03_test_sharepoint_connection.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.FileHandler("logs/03_test_sharepoint_connection.log"),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 logger = logging.getLogger(__name__)
 

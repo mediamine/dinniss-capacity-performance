@@ -1,0 +1,36 @@
+[tool.ruff]
+# Target the Python version used in your pipeline environment
+target-version = "py310"
+line-length = 100 # Slightly longer for data engineering (useful for long SQL strings/file paths)
+
+[tool.ruff.lint]
+# 1. Selection of Rules
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (keeps imports organized)
+    "UP",  # pyupgrade (modernizes syntax)
+    "B",   # flake8-bugbear (finds likely bugs)
+    "DTZ", # flake8-datetimez (CRITICAL: prevents naive datetimes in pipelines)
+    "PD",  # pandas-vet (linting specifically for Pandas code)
+    "NPY", # numpy-specific rules
+    "PT",  # flake8-pytest-style (if you use pytest for pipeline testing)
+    "TID", # flake8-tidy-imports (prevents messy relative imports)
+]
+
+# 2. Specific Rule Overrides
+ignore = [
+    "PD901", # Allow 'df' as a variable name (common in DE, though often discouraged)
+]
+
+[tool.ruff.lint.isort]
+# Groups imports: Standard library -> Third party (Pandas/Spark) -> Local pipeline modules
+known-first-party = ["gold"]
+combine-as-imports = true
+
+[tool.ruff.format]
+# Matches Black's formatting style
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false

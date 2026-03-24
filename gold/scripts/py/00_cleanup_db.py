@@ -19,18 +19,19 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler('logs/00_cleanup_db.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.FileHandler("logs/00_cleanup_db.log"),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 logger = logging.getLogger(__name__)
+
 
 def get_connection():
     """Establish connection to PostgreSQL database."""
     try:
-        conn_str = os.getenv('POSTGRES_CONNECTION')
+        conn_str = os.getenv("POSTGRES_CONNECTION")
         if not conn_str:
             raise ValueError("POSTGRES_CONNECTION environment variable not set")
         conn = psycopg2.connect(conn_str)
@@ -40,6 +41,7 @@ def get_connection():
     except psycopg2.Error as e:
         logger.error(f"Failed to connect to PostgreSQL: {e}")
         sys.exit(1)
+
 
 def get_views(conn) -> List[str]:
     """Get list of all user-defined views in the database."""
@@ -58,6 +60,7 @@ def get_views(conn) -> List[str]:
         logger.error(f"Failed to retrieve views: {e}")
         return []
 
+
 def get_tables(conn) -> List[str]:
     """Get list of all user-defined tables in the database."""
     try:
@@ -75,27 +78,30 @@ def get_tables(conn) -> List[str]:
         logger.error(f"Failed to retrieve tables: {e}")
         return []
 
+
 def drop_objects(conn, objects: List[str], object_type: str):
     """Drop a list of database objects (views or tables)."""
     for obj in objects:
         try:
             with conn.cursor() as cursor:
                 query = sql.SQL("DROP {} IF EXISTS {} CASCADE").format(
-                    sql.SQL(object_type.upper()),
-                    sql.Identifier(*obj.split('.'))
+                    sql.SQL(object_type.upper()), sql.Identifier(*obj.split("."))
                 )
                 cursor.execute(query)
                 logger.info(f"Dropped {object_type}: {obj}")
         except psycopg2.Error as e:
             logger.error(f"Failed to drop {object_type} {obj}: {e}")
 
+
 def main():
     """Main function to perform database cleanup."""
     logger.info("Starting database cleanup...")
 
     # Confirm action
-    confirm = input("This will drop all tables and views in the database. Are you sure? (yes/no): ")
-    if confirm.lower() != 'yes':
+    confirm = input(
+        "This will drop all tables and views in the database. Are you sure? (yes/no): "
+    )
+    if confirm.lower() != "yes":
         logger.info("Cleanup cancelled by user")
         return
 
@@ -109,9 +115,9 @@ def main():
             drop_objects(conn, views, "view")
 
         # Then drop tables
-        tables = get_tables(conn)
-        if tables:
-            drop_objects(conn, tables, "table")
+        # tables = get_tables(conn)
+        # if tables:
+        #     drop_objects(conn, tables, "table")
 
         logger.info("Database cleanup completed successfully")
 
@@ -122,6 +128,7 @@ def main():
         if conn:
             conn.close()
             logger.info("Database connection closed")
+
 
 if __name__ == "__main__":
     main()

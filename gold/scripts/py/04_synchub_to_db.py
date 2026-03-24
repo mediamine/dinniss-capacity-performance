@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 """
-SyncHub (SQL Server) to PostgreSQL Data Sync Script
+SyncHub (SQL Server) to PostgreSQL SCD Type 2 Sync
 
-This script copies data from SyncHub's SQL Server database to your PostgreSQL database.
-SyncHub syncs data from your cloud services into a SQL Azure database,
-and this script copies that data to your own PostgreSQL database on a schedule.
-Existing tables are dropped and recreated with fresh data on each sync.
+Connects to SyncHub's SQL Server database and syncs to PostgreSQL with full history tracking.
 """
 
 import os
 import sys
 import logging
 import time
-import re
 import hashlib
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -25,134 +21,80 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Fix for Windows console encoding issues
+if sys.platform == "win32":
+    import codecs
+
+    if sys.stdout.encoding != "utf-8":
+        sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
+    if sys.stderr.encoding != "utf-8":
+        sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler('logs/04_synchub_to_db.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.FileHandler("synchub_scd2_sync.log"),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 logger = logging.getLogger(__name__)
 
 
-def sanitize_table_name(schema: str, table: str, prefix: str = "") -> str:
-    """
-    Sanitize SQL Server table names to be valid PostgreSQL identifiers
-    
-    PostgreSQL rules:
-    - Must start with letter or underscore
-    - Can contain letters, digits, underscores
-    - Max 63 characters
-    - Best practice: lowercase
-    """
-    # Combine schema and table
-    if prefix:
-        full_name = f"{prefix}{schema}_{table}"
-    else:
-        full_name = f"{schema}_{table}"
-    
-    # Convert to lowercase
-    full_name = full_name.lower()
-    
-    # Replace problematic characters with underscore
-    full_name = re.sub(r'[\s\-\.\(\)\[\]\{\}/\\]', '_', full_name)
-    
-    # Remove any remaining special characters except underscore
-    full_name = re.sub(r'[^a-z0-9_]', '', full_name)
-    
-    # Remove consecutive underscores
-    full_name = re.sub(r'_+', '_', full_name)
-    
-    # Ensure starts with letter or underscore
-    if full_name and full_name[0].isdigit():
-        full_name = f"t_{full_name}"
-    
-    # Trim to 63 characters (PostgreSQL limit)
-    if len(full_name) > 63:
-        # Keep first 40 and last 20 for uniqueness
-        full_name = f"{full_name[:40]}_{full_name[-20:]}"
-        full_name = full_name[:63]
-    
-    # Remove trailing underscores
-    full_name = full_name.rstrip('_')
-    
-    return full_name
-
-
-class SyncHubSource:
+class SyncHubSQLServerSource:
     """Client for reading data from SyncHub's SQL Server database"""
-    
+
     def __init__(self, server: str, database: str, username: str, password: str):
         self.server = server
         self.database = database
         self.username = username
         self.password = password
         self.conn = None
-    
+
     def connect(self):
-        """Establish database connection to SQL Server"""
-        connection_string = (
-            f'DRIVER={{ODBC Driver 18 for SQL Server}};'
-            f'SERVER={self.server};'
-            f'DATABASE={self.database};'
-            f'UID={self.username};'
-            f'PWD={self.password};'
-            f'Encrypt=yes;'
-            f'TrustServerCertificate=yes;'  # Required for Azure SQL connections
-            f'Connection Timeout=30;'
-        )
-        
+        """Establish database connection"""
         try:
+            # Build connection string for Azure SQL
+            connection_string = (
+                f"Driver={{ODBC Driver 18 for SQL Server}};"
+                f"Server={self.server},1433;"
+                f"Database={self.database};"
+                f"Uid={self.username};"
+                f"Pwd={self.password};"
+                f"Encrypt=yes;"
+                f"TrustServerCertificate=yes;"
+                f"Connection Timeout=30;"
+            )
+
             self.conn = pyodbc.connect(connection_string)
-            logger.info("Successfully connected to SyncHub SQL Server database")
+            logger.info(
+                f"Successfully connected to SyncHub SQL Server: {self.database}"
+            )
         except pyodbc.Error as e:
-            logger.error(f"Error connecting to SyncHub database: {e}")
+            logger.error(f"Error connecting to SyncHub SQL Server: {e}")
             raise
-    
+
     def disconnect(self):
         """Close database connection"""
         if self.conn:
             self.conn.close()
-            logger.info("Disconnected from SyncHub database")
-    
-    def get_schemas(self) -> List[str]:
-        """Get list of non-system schemas"""
+            logger.info("Disconnected from SyncHub SQL Server")
+
+    def get_all_tables(
+        self, schemas: Optional[List[str]] = None
+    ) -> List[Dict[str, str]]:
+        """Get list of all tables from specified schemas"""
         cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT name 
-            FROM sys.schemas 
-            WHERE name NOT IN ('sys', 'guest', 'INFORMATION_SCHEMA', 'db_owner', 
-                               'db_accessadmin', 'db_securityadmin', 'db_ddladmin',
-                               'db_backupoperator', 'db_datareader', 'db_datawriter',
-                               'db_denydatareader', 'db_denydatawriter')
-            ORDER BY name
-        """)
-        
-        schemas = [row[0] for row in cursor.fetchall()]
-        cursor.close()
-        return schemas
-    
-    def get_tables(self, schemas: Optional[List[str]] = None) -> List[Dict[str, str]]:
-        """
-        Get list of tables from SyncHub database
-        
-        Args:
-            schemas: Optional list of schema names to filter
-            
-        Returns:
-            List of dicts with 'schema' and 'table' keys
-        """
-        cursor = self.conn.cursor()
-        
+
         if schemas:
-            schema_placeholders = ','.join(['?' for _ in schemas])
+            schema_filter = f"AND TABLE_SCHEMA IN ({','.join(['?']*len(schemas))})"
             query = f"""
                 SELECT TABLE_SCHEMA, TABLE_NAME 
                 FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_TYPE = 'BASE TABLE' 
-                AND TABLE_SCHEMA IN ({schema_placeholders})
+                WHERE TABLE_TYPE = 'BASE TABLE'
+                {schema_filter}
+                AND TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA')
                 ORDER BY TABLE_SCHEMA, TABLE_NAME
             """
             cursor.execute(query, schemas)
@@ -164,15 +106,15 @@ class SyncHubSource:
                 AND TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA')
                 ORDER BY TABLE_SCHEMA, TABLE_NAME
             """)
-        
+
         tables = []
         for row in cursor.fetchall():
-            tables.append({'schema': row[0], 'table': row[1]})
-        
-        cursor.close()
+            tables.append({"schema": row[0], "table": row[1]})
+
         logger.info(f"Found {len(tables)} tables in SyncHub database")
+        cursor.close()
         return tables
-    
+
     def get_table_data(self, schema: str, table: str) -> List[tuple]:
         """Fetch all data from a specific table"""
         cursor = self.conn.cursor()
@@ -181,47 +123,69 @@ class SyncHubSource:
         data = cursor.fetchall()
         cursor.close()
         return data
-    
+
     def get_table_columns(self, schema: str, table: str) -> List[Dict[str, Any]]:
         """Get column definitions for a table"""
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT 
-                c.COLUMN_NAME,
-                c.DATA_TYPE,
-                c.CHARACTER_MAXIMUM_LENGTH,
-                c.NUMERIC_PRECISION,
-                c.NUMERIC_SCALE,
-                c.IS_NULLABLE,
-                c.COLUMN_DEFAULT
-            FROM INFORMATION_SCHEMA.COLUMNS c
-            WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?
-            ORDER BY c.ORDINAL_POSITION
-        """, (schema, table))
-        
+                COLUMN_NAME,
+                DATA_TYPE,
+                CHARACTER_MAXIMUM_LENGTH,
+                NUMERIC_PRECISION,
+                NUMERIC_SCALE,
+                IS_NULLABLE,
+                COLUMN_DEFAULT
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+            ORDER BY ORDINAL_POSITION
+        """,
+            (schema, table),
+        )
+
         columns = []
         for row in cursor.fetchall():
-            columns.append({
-                'name': row[0],
-                'data_type': row[1],
-                'max_length': row[2],
-                'numeric_precision': row[3],
-                'numeric_scale': row[4],
-                'nullable': row[5] == 'YES',
-                'default': row[6]
-            })
-        
+            columns.append(
+                {
+                    "name": row[0],
+                    "data_type": row[1],
+                    "max_length": row[2],
+                    "numeric_precision": row[3],
+                    "numeric_scale": row[4],
+                    "nullable": row[5] == "YES",
+                    "default": row[6],
+                }
+            )
         cursor.close()
         return columns
 
+    def get_primary_key_columns(self, schema: str, table: str) -> List[str]:
+        """Get primary key columns for a table"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT COLUMN_NAME
+            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+            WHERE OBJECTPROPERTY(OBJECT_ID(CONSTRAINT_SCHEMA + '.' + CONSTRAINT_NAME), 'IsPrimaryKey') = 1
+            AND TABLE_SCHEMA = ? AND TABLE_NAME = ?
+            ORDER BY ORDINAL_POSITION
+        """,
+            (schema, table),
+        )
 
-class PostgresDestination:
-    """Handle PostgreSQL destination database synchronization"""
-    
+        pks = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        return pks
+
+
+class PostgresSCD2Destination:
+    """Handle PostgreSQL SCD Type 2 operations"""
+
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
         self.conn = None
-    
+
     def connect(self):
         """Establish database connection"""
         try:
@@ -231,267 +195,413 @@ class PostgresDestination:
         except psycopg2.Error as e:
             logger.error(f"Error connecting to destination PostgreSQL: {e}")
             raise
-    
+
     def disconnect(self):
         """Close database connection"""
         if self.conn:
             self.conn.close()
             logger.info("Disconnected from destination PostgreSQL")
-    
-    def drop_table(self, table_name: str):
-        """Drop a table if it exists"""
+
+    def table_exists(self, table_name: str) -> bool:
+        """Check if table exists"""
         with self.conn.cursor() as cursor:
-            try:
-                cursor.execute(
-                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
-                        sql.Identifier(table_name)
-                    )
+            cursor.execute(
+                """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public'
+                    AND table_name = %s
                 )
-                logger.info(f"Dropped table: {table_name}")
-            except psycopg2.Error as e:
-                logger.error(f"Error dropping table {table_name}: {e}")
-                raise
-    
-    def map_sql_server_type_to_postgres(self, col: Dict[str, Any]) -> str:
-        """Map SQL Server data types to PostgreSQL types"""
-        data_type = col['data_type'].lower()
-        
-        # String types
-        if data_type in ('varchar', 'nvarchar'):
-            if col['max_length'] and col['max_length'] > 0:
-                return f"VARCHAR({col['max_length']})"
-            return "TEXT"
-        elif data_type in ('char', 'nchar'):
-            if col['max_length'] and col['max_length'] > 0:
-                return f"CHAR({col['max_length']})"
-            return "CHAR(1)"
-        elif data_type in ('text', 'ntext'):
-            return "TEXT"
-        
-        # Numeric types
-        elif data_type in ('int', 'integer'):
-            return "INTEGER"
-        elif data_type == 'bigint':
-            return "BIGINT"
-        elif data_type == 'smallint':
-            return "SMALLINT"
-        elif data_type == 'tinyint':
-            return "SMALLINT"
-        elif data_type == 'bit':
-            return "BOOLEAN"
-        elif data_type in ('decimal', 'numeric'):
-            precision = col.get('numeric_precision', 18)
-            scale = col.get('numeric_scale', 0)
-            return f"NUMERIC({precision},{scale})"
-        elif data_type in ('float', 'real'):
-            return "DOUBLE PRECISION"
-        elif data_type == 'money':
-            return "NUMERIC(19,4)"
-        elif data_type == 'smallmoney':
-            return "NUMERIC(10,4)"
-        
-        # Date/Time types
-        elif data_type in ('datetime', 'datetime2', 'smalldatetime'):
-            return "TIMESTAMP"
-        elif data_type == 'date':
-            return "DATE"
-        elif data_type == 'time':
-            return "TIME"
-        elif data_type == 'datetimeoffset':
-            return "TIMESTAMP WITH TIME ZONE"
-        
-        # Binary types
-        elif data_type in ('binary', 'varbinary', 'image'):
-            return "BYTEA"
-        
-        # GUID
-        elif data_type == 'uniqueidentifier':
-            return "UUID"
-        
-        # XML/JSON
-        elif data_type == 'xml':
-            return "XML"
-        
-        # Default to TEXT for unknown types
-        else:
-            logger.warning(f"Unknown SQL Server type '{data_type}', using TEXT")
-            return "TEXT"
-    
-    def create_table(self, table_name: str, columns: List[Dict[str, Any]]):
-        """Create a table with specified columns"""
+            """,
+                (table_name,),
+            )
+            return cursor.fetchone()[0]
+
+    def create_scd2_table(self, table_name: str, columns: List[Dict[str, Any]]):
+        """Create SCD Type 2 table with versioning columns"""
         if not columns:
             logger.warning(f"No columns provided for table {table_name}")
             return
-        
+
+        # Build source column definitions
         col_definitions = []
         for col in columns:
-            pg_type = self.map_sql_server_type_to_postgres(col)
-            
-            # Use sql.Identifier for column name, then add type
-            col_def = sql.SQL("{} {}").format(
-                sql.Identifier(col['name']),
-                sql.SQL(pg_type)
+            pg_type = self._map_sqlserver_to_postgres(col)
+            col_definitions.append(
+                sql.SQL("{} {}").format(sql.Identifier(col["name"]), sql.SQL(pg_type))
             )
-            
-            # Add NOT NULL constraint
-            if not col.get('nullable', True):
-                col_def = sql.SQL("{} NOT NULL").format(col_def)
-            
-            col_definitions.append(col_def)
-        
+
+        # Add SCD Type 2 metadata columns
+        scd_columns = [
+            sql.SQL("_scd_id BIGSERIAL PRIMARY KEY"),
+            sql.SQL("_scd_valid_from TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+            sql.SQL("_scd_valid_to TIMESTAMP"),
+            sql.SQL("_scd_is_current BOOLEAN NOT NULL DEFAULT TRUE"),
+            sql.SQL("_scd_source_hash VARCHAR(64)"),
+        ]
+
+        all_columns = col_definitions + scd_columns
+
         create_sql = sql.SQL("CREATE TABLE {} ({})").format(
-            sql.Identifier(table_name),
-            sql.SQL(', ').join(col_definitions)
+            sql.Identifier(table_name), sql.SQL(", ").join(all_columns)
         )
-        
+
         with self.conn.cursor() as cursor:
             try:
                 cursor.execute(create_sql)
-                logger.info(f"Created table: {table_name}")
+
+                # Create indexes
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE INDEX {} ON {} (_scd_is_current) WHERE _scd_is_current = TRUE"
+                    ).format(
+                        sql.Identifier(f"idx_{table_name}_current"),
+                        sql.Identifier(table_name),
+                    )
+                )
+
+                cursor.execute(
+                    sql.SQL("CREATE INDEX {} ON {} (_scd_valid_from)").format(
+                        sql.Identifier(f"idx_{table_name}_valid_from"),
+                        sql.Identifier(table_name),
+                    )
+                )
+
+                logger.info(f"Created SCD Type 2 table: {table_name}")
             except psycopg2.Error as e:
                 logger.error(f"Error creating table {table_name}: {e}")
                 raise
-    
-    def insert_data(self, table_name: str, columns: List[str], data: List[tuple]):
-        """Insert data into a table"""
-        if not data:
-            logger.warning(f"No data to insert into {table_name}")
-            return
-        
-        # Quote column names to preserve case and handle special characters
-        column_identifiers = [sql.Identifier(col) for col in columns]
-        
-        insert_sql = sql.SQL("INSERT INTO {} ({}) VALUES %s").format(
-            sql.Identifier(table_name),
-            sql.SQL(', ').join(column_identifiers)
-        )
-        
+
+    def _map_sqlserver_to_postgres(self, col: Dict[str, Any]) -> str:
+        """Map SQL Server data types to PostgreSQL types"""
+        data_type = col["data_type"].lower()
+
+        # String types
+        if data_type in ("varchar", "nvarchar"):
+            if col["max_length"] and col["max_length"] > 0 and col["max_length"] != -1:
+                return f"VARCHAR({col['max_length']})"
+            return "TEXT"
+        elif data_type in ("char", "nchar"):
+            if col["max_length"] and col["max_length"] > 0:
+                return f"CHAR({col['max_length']})"
+            return "CHAR(1)"
+        elif data_type in ("text", "ntext"):
+            return "TEXT"
+
+        # Numeric types
+        elif data_type in ("int", "integer"):
+            return "INTEGER"
+        elif data_type == "bigint":
+            return "BIGINT"
+        elif data_type == "smallint":
+            return "SMALLINT"
+        elif data_type == "tinyint":
+            return "SMALLINT"
+        elif data_type == "bit":
+            return "BOOLEAN"
+        elif data_type in ("decimal", "numeric"):
+            precision = col.get("numeric_precision", 18)
+            scale = col.get("numeric_scale", 0)
+            return f"NUMERIC({precision},{scale})"
+        elif data_type in ("money", "smallmoney"):
+            return "NUMERIC(19,4)"
+        elif data_type in ("float", "real"):
+            return "DOUBLE PRECISION"
+
+        # Date/Time types
+        elif data_type in ("datetime", "datetime2", "smalldatetime"):
+            return "TIMESTAMP"
+        elif data_type == "date":
+            return "DATE"
+        elif data_type == "time":
+            return "TIME"
+        elif data_type == "datetimeoffset":
+            return "TIMESTAMP WITH TIME ZONE"
+
+        # Binary types
+        elif data_type in ("binary", "varbinary", "image"):
+            return "BYTEA"
+
+        # Other types
+        elif data_type == "uniqueidentifier":
+            return "UUID"
+        elif data_type == "xml":
+            return "XML"
+
+        else:
+            logger.warning(f"Unknown SQL Server type '{data_type}', using TEXT")
+            return "TEXT"
+
+    def calculate_row_hash(self, row: tuple) -> str:
+        """Calculate hash of row data for change detection"""
+        row_str = "|".join([str(v) if v is not None else "NULL" for v in row])
+        return hashlib.md5(row_str.encode()).hexdigest()
+
+    def create_current_view(self, table_name: str, columns: List[Dict[str, Any]]):
+        """
+        Create a view showing only current records (where _scd_is_current = TRUE)
+
+        Args:
+            table_name: Name of the base table
+            columns: Column definitions from source
+        """
+        # view_name = f"vw_{table_name}_current"
+        # For better readability, we can remove the prefix if it exists
+        view_name = f"{table_name.split('_')[-1]}"
+
+        # Get list of source columns (exclude SCD metadata columns)
+        source_columns = [col["name"] for col in columns]
+
         with self.conn.cursor() as cursor:
             try:
-                execute_values(cursor, insert_sql, data)
-                logger.info(f"Inserted {len(data)} rows into {table_name}")
+                # Create view with only current records
+                create_view_sql = sql.SQL("""
+                    CREATE OR REPLACE VIEW {} AS
+                    SELECT {}
+                    FROM {}
+                    WHERE _scd_is_current = TRUE
+                """).format(
+                    sql.Identifier(view_name),
+                    sql.SQL(", ").join([sql.Identifier(col) for col in source_columns]),
+                    sql.Identifier(table_name),
+                )
+
+                cursor.execute(create_view_sql)
+                logger.info(f"Created current records view: {view_name}")
+
             except psycopg2.Error as e:
-                logger.error(f"Error inserting data into {table_name}: {e}")
+                logger.error(f"Error creating view {view_name}: {e}")
                 raise
-    
-    def sync_table(self, source_schema: str, source_table: str, 
-                   dest_table: str, columns: List[Dict[str, Any]], data: List[tuple]):
-        """Drop, recreate, and populate a table with new data"""
-        try:
-            # Normalize table name for PostgreSQL compatibility
-            dest_table = self._normalize_table_name(dest_table)
-            logger.info(f"Syncing {source_schema}.{source_table} -> {dest_table}")
-            
-            self.drop_table(dest_table)
-            self.create_table(dest_table, columns)
-            
-            if data:
-                column_names = [col['name'] for col in columns]
-                self.insert_data(dest_table, column_names, data)
+
+    def sync_scd2_table(
+        self,
+        table_name: str,
+        columns: List[Dict[str, Any]],
+        source_data: List[tuple],
+        primary_keys: List[str],
+    ):
+        """Sync data using SCD Type 2 pattern"""
+        column_names = [col["name"] for col in columns]
+
+        # Calculate hashes for source data
+        source_with_hash = []
+        for row in source_data:
+            row_hash = self.calculate_row_hash(row)
+            source_with_hash.append((row, row_hash))
+
+        logger.info(f"Processing {len(source_with_hash)} records for {table_name}")
+
+        with self.conn.cursor() as cursor:
+            # Get current records from destination
+            cursor.execute(
+                sql.SQL("""
+                SELECT {}, _scd_source_hash, _scd_id
+                FROM {}
+                WHERE _scd_is_current = TRUE
+            """).format(
+                    sql.SQL(", ").join([sql.Identifier(col) for col in column_names]),
+                    sql.Identifier(table_name),
+                )
+            )
+
+            current_records = cursor.fetchall()
+
+            # Build lookup of current records by primary key
+            if primary_keys:
+                pk_indices = [column_names.index(pk) for pk in primary_keys]
+                current_by_pk = {}
+                for record in current_records:
+                    pk_values = tuple(record[i] for i in pk_indices)
+                    current_by_pk[pk_values] = {
+                        "hash": record[-2],
+                        "scd_id": record[-1],
+                    }
             else:
-                logger.warning(f"No data to sync for {dest_table}")
-            
-            self.conn.commit()
-            logger.info(f"Successfully synced table: {dest_table} ({len(data)} rows)")
-        except Exception as e:
-            self.conn.rollback()
-            logger.error(f"Failed to sync table {dest_table}: {e}")
-            raise
-    
+                current_by_pk = {}
+
+            # Process source records
+            new_records = []
+            updated_records = []
+            unchanged_count = 0
+
+            for source_row, source_hash in source_with_hash:
+                if primary_keys:
+                    pk_values = tuple(source_row[i] for i in pk_indices)
+
+                    if pk_values in current_by_pk:
+                        current_hash = current_by_pk[pk_values]["hash"]
+                        if source_hash != current_hash:
+                            updated_records.append(
+                                {
+                                    "old_scd_id": current_by_pk[pk_values]["scd_id"],
+                                    "new_row": source_row,
+                                    "new_hash": source_hash,
+                                }
+                            )
+                        else:
+                            unchanged_count += 1
+                    else:
+                        new_records.append((source_row, source_hash))
+                else:
+                    new_records.append((source_row, source_hash))
+
+            # Mark old records as not current
+            if updated_records:
+                old_ids = [r["old_scd_id"] for r in updated_records]
+                cursor.execute(
+                    sql.SQL("""
+                    UPDATE {}
+                    SET _scd_is_current = FALSE,
+                        _scd_valid_to = CURRENT_TIMESTAMP
+                    WHERE _scd_id = ANY(%s)
+                """).format(sql.Identifier(table_name)),
+                    (old_ids,),
+                )
+                logger.info(f"Marked {len(updated_records)} old records as not current")
+
+            # Insert new versions of updated records
+            if updated_records:
+                insert_data = [
+                    (list(rec["new_row"]) + [rec["new_hash"]])
+                    for rec in updated_records
+                ]
+
+                insert_sql = sql.SQL("""
+                    INSERT INTO {} ({}, _scd_source_hash)
+                    VALUES %s
+                """).format(
+                    sql.Identifier(table_name),
+                    sql.SQL(", ").join([sql.Identifier(col) for col in column_names]),
+                )
+                execute_values(cursor, insert_sql, insert_data)
+                logger.info(f"Inserted {len(updated_records)} new versions")
+
+            # Insert completely new records
+            if new_records:
+                insert_data = [
+                    (list(row) + [row_hash]) for row, row_hash in new_records
+                ]
+
+                insert_sql = sql.SQL("""
+                    INSERT INTO {} ({}, _scd_source_hash)
+                    VALUES %s
+                """).format(
+                    sql.Identifier(table_name),
+                    sql.SQL(", ").join([sql.Identifier(col) for col in column_names]),
+                )
+                execute_values(cursor, insert_sql, insert_data)
+                logger.info(f"Inserted {len(new_records)} new records")
+
+            logger.info(
+                f"Summary - New: {len(new_records)}, Updated: {len(updated_records)}, Unchanged: {unchanged_count}"
+            )
+
     def _normalize_table_name(self, table_name: str) -> str:
-        """
-        Normalize table name for PostgreSQL compatibility
-        - Convert to lowercase to avoid quoting issues
-        - Truncate to 63 characters (PostgreSQL limit)
-        - Replace invalid characters
-        
-        Args:
-            table_name: Original table name
-            
-        Returns:
-            Normalized table name
-        """
-        # Convert to lowercase
+        """Normalize table name for PostgreSQL compatibility"""
         normalized = table_name.lower()
-        
-        # Replace invalid characters with underscore
-        normalized = ''.join(c if c.isalnum() or c == '_' else '_' for c in normalized)
-        
-        # Remove consecutive underscores
-        while '__' in normalized:
-            normalized = normalized.replace('__', '_')
-        
-        # Strip leading/trailing underscores
-        normalized = normalized.strip('_')
-        
-        # Truncate to 63 characters (PostgreSQL limit)
+        normalized = "".join(c if c.isalnum() or c == "_" else "_" for c in normalized)
+        while "__" in normalized:
+            normalized = normalized.replace("__", "_")
+        normalized = normalized.strip("_")
+
         if len(normalized) > 63:
-            # Keep a hash of the original name to avoid collisions
-            import hashlib
             hash_suffix = hashlib.md5(table_name.encode()).hexdigest()[:8]
-            # Take first 54 chars + underscore + 8 char hash = 63 chars
-            normalized = normalized[:54] + '_' + hash_suffix
-            logger.warning(f"Table name '{table_name}' exceeds 63 chars, truncating to '{normalized}'")
-        
+            normalized = normalized[:54] + "_" + hash_suffix
+
         return normalized
 
 
-def sync_data(synchub_source: SyncHubSource, postgres_dest: PostgresDestination, 
-              schemas: Optional[List[str]] = None, table_prefix: str = ""):
-    """Main synchronization function"""
+def scd2_sync(
+    synchub_source: SyncHubSQLServerSource,
+    postgres_dest: PostgresSCD2Destination,
+    schemas: Optional[List[str]] = None,
+    table_prefix: str = "",
+    default_primary_key: str = "id",
+    create_views: bool = True,
+):
+    """
+    Perform SCD Type 2 sync from SyncHub to PostgreSQL
+
+    Args:
+        synchub_source: SyncHub source connection
+        postgres_dest: PostgreSQL destination connection
+        schemas: Optional list of schemas to sync
+        table_prefix: Prefix for destination table names
+        default_primary_key: Default primary key column name if none found
+        create_views: If True, create views for current records (default: True)
+    """
     logger.info("=" * 80)
-    logger.info(f"Starting data synchronization at {datetime.now()}")
+    logger.info(f"Starting SCD Type 2 sync at {datetime.now()}")
+    logger.info(f"Create current views: {create_views}")
     logger.info("=" * 80)
-    
+
     try:
-        # Connect to both databases
         synchub_source.connect()
         postgres_dest.connect()
-        
-        # Get list of tables to sync
-        tables = synchub_source.get_tables(schemas)
-        
+
+        tables = synchub_source.get_all_tables(schemas)
+
         if not tables:
             logger.warning("No tables found to sync")
             return
-        
-        # Sync each table
-        success_count = 0
-        error_count = 0
-        
+
         for table_info in tables:
-            source_schema = table_info['schema']
-            source_table = table_info['table']
-            
-            # Sanitize table name for PostgreSQL
-            dest_table = sanitize_table_name(source_schema, source_table, table_prefix)
-            
-            # Log the mapping
-            logger.info(f"Mapping: {source_schema}.{source_table} -> {dest_table}")
-            
+            source_schema = table_info["schema"]
+            source_table = table_info["table"]
+
+            dest_table = postgres_dest._normalize_table_name(
+                f"{table_prefix}{source_schema}_{source_table}"
+            )
+
             try:
-                # Get table structure and data
+                logger.info(
+                    f"\nProcessing {source_schema}.{source_table} -> {dest_table}"
+                )
+
                 columns = synchub_source.get_table_columns(source_schema, source_table)
-                data = synchub_source.get_table_data(source_schema, source_table)
-                
-                # Sync to destination
-                postgres_dest.sync_table(source_schema, source_table, dest_table, columns, data)
-                success_count += 1
-                
+                primary_keys = synchub_source.get_primary_key_columns(
+                    source_schema, source_table
+                )
+
+                if not primary_keys:
+                    column_names = [col["name"] for col in columns]
+                    if default_primary_key in column_names:
+                        primary_keys = [default_primary_key]
+                    else:
+                        logger.warning(
+                            f"No primary key found for {source_schema}.{source_table}"
+                        )
+                        primary_keys = []
+
+                if not postgres_dest.table_exists(dest_table):
+                    postgres_dest.create_scd2_table(dest_table, columns)
+
+                source_data = synchub_source.get_table_data(source_schema, source_table)
+
+                if not source_data:
+                    logger.info(f"No data in {source_schema}.{source_table}")
+                    continue
+
+                postgres_dest.sync_scd2_table(
+                    dest_table, columns, source_data, primary_keys
+                )
+
+                # Create view for current records if enabled
+                if create_views:
+                    postgres_dest.create_current_view(dest_table, columns)
+
+                postgres_dest.conn.commit()
+                logger.info(f"[SUCCESS] Synced {source_schema}.{source_table}")
+
             except Exception as e:
                 logger.error(f"Error syncing {source_schema}.{source_table}: {e}")
-                error_count += 1
-                # Continue with other tables
+                postgres_dest.conn.rollback()
                 continue
-        
+
         logger.info("=" * 80)
-        logger.info(f"Synchronization completed at {datetime.now()}")
-        logger.info(f"Success: {success_count} tables, Errors: {error_count} tables")
+        logger.info(f"SCD Type 2 sync completed at {datetime.now()}")
         logger.info("=" * 80)
-        
-    except Exception as e:
-        logger.error(f"Synchronization failed: {e}")
-        raise
+
     finally:
         synchub_source.disconnect()
         postgres_dest.disconnect()
@@ -499,82 +609,84 @@ def sync_data(synchub_source: SyncHubSource, postgres_dest: PostgresDestination,
 
 def main():
     """Main entry point"""
-    
-    # Configuration from environment variables
-    SYNCHUB_SERVER = os.getenv('SYNCHUB_SERVER')  # e.g., server.database.windows.net
-    SYNCHUB_DATABASE = os.getenv('SYNCHUB_DATABASE')
-    SYNCHUB_USERNAME = os.getenv('SYNCHUB_USERNAME')
-    SYNCHUB_PASSWORD = os.getenv('SYNCHUB_PASSWORD')
-    
-    POSTGRES_CONNECTION = os.getenv('POSTGRES_CONNECTION')
-    SYNC_SCHEDULE = os.getenv('SYNC_SCHEDULE', '0 2 * * *')
-    TABLE_PREFIX = os.getenv('TABLE_PREFIX', 'synchub_')
-    
-    # Optional: Specify which schemas to sync (comma-separated)
-    SCHEMAS_TO_SYNC = os.getenv('SCHEMAS_TO_SYNC', '').split(',') if os.getenv('SCHEMAS_TO_SYNC') else None
-    if SCHEMAS_TO_SYNC:
-        SCHEMAS_TO_SYNC = [s.strip() for s in SCHEMAS_TO_SYNC if s.strip()]
-    
-    # Validate configuration
-    if not all([SYNCHUB_SERVER, SYNCHUB_DATABASE, SYNCHUB_USERNAME, SYNCHUB_PASSWORD]):
-        logger.error("SyncHub credentials are required (SYNCHUB_SERVER, SYNCHUB_DATABASE, SYNCHUB_USERNAME, SYNCHUB_PASSWORD)")
-        sys.exit(1)
-    
-    if not POSTGRES_CONNECTION:
-        logger.error("POSTGRES_CONNECTION environment variable is required")
-        sys.exit(1)
-    
-    # Initialize clients
-    synchub_source = SyncHubSource(SYNCHUB_SERVER, SYNCHUB_DATABASE, SYNCHUB_USERNAME, SYNCHUB_PASSWORD)
-    postgres_dest = PostgresDestination(POSTGRES_CONNECTION)
-    
-    # Parse schedule format
-    schedule_parts = SYNC_SCHEDULE.split()
-    
-    if len(schedule_parts) == 1 and schedule_parts[0].endswith(('m', 'h', 'd')):
-        # Simple interval format
-        interval = schedule_parts[0]
-        if interval.endswith('m'):
-            minutes = int(interval[:-1])
-            schedule.every(minutes).minutes.do(
-                sync_data, synchub_source, postgres_dest, SCHEMAS_TO_SYNC, TABLE_PREFIX
-            )
-            logger.info(f"Scheduled sync every {minutes} minutes")
-        elif interval.endswith('h'):
-            hours = int(interval[:-1])
-            schedule.every(hours).hours.do(
-                sync_data, synchub_source, postgres_dest, SCHEMAS_TO_SYNC, TABLE_PREFIX
-            )
-            logger.info(f"Scheduled sync every {hours} hours")
-        elif interval.endswith('d'):
-            days = int(interval[:-1])
-            schedule.every(days).days.do(
-                sync_data, synchub_source, postgres_dest, SCHEMAS_TO_SYNC, TABLE_PREFIX
-            )
-            logger.info(f"Scheduled sync every {days} days")
-    else:
-        # Daily at specific time
-        schedule.every().day.at("02:00").do(
-            sync_data, synchub_source, postgres_dest, SCHEMAS_TO_SYNC, TABLE_PREFIX
+
+    # Parse SyncHub SQL Server connection details
+    SYNCHUB_SERVER = os.getenv(
+        "SYNCHUB_SERVER"
+    )  # e.g., synchub-io.database.windows.net
+    SYNCHUB_DATABASE = os.getenv("SYNCHUB_DATABASE")
+    SYNCHUB_USERNAME = os.getenv("SYNCHUB_USERNAME")
+    SYNCHUB_PASSWORD = os.getenv("SYNCHUB_PASSWORD")
+
+    POSTGRES_CONNECTION = os.getenv("POSTGRES_CONNECTION")
+
+    SCHEMAS_TO_SYNC = (
+        os.getenv("SCHEMAS_TO_SYNC", "").split(",")
+        if os.getenv("SCHEMAS_TO_SYNC")
+        else None
+    )
+    TABLE_PREFIX = os.getenv("TABLE_PREFIX", "synchub_")
+    DEFAULT_PRIMARY_KEY = os.getenv("DEFAULT_PRIMARY_KEY", "id")
+    CREATE_VIEWS = os.getenv("CREATE_VIEWS", "true").lower() == "true"
+    SYNC_SCHEDULE = os.getenv("SYNC_SCHEDULE", "1d")
+
+    if not all(
+        [
+            SYNCHUB_SERVER,
+            SYNCHUB_DATABASE,
+            SYNCHUB_USERNAME,
+            SYNCHUB_PASSWORD,
+            POSTGRES_CONNECTION,
+        ]
+    ):
+        logger.error(
+            "All SyncHub SQL Server credentials and POSTGRES_CONNECTION are required"
         )
-        logger.info("Scheduled sync daily at 02:00")
-    
-    # Run initial sync
-    logger.info("Running initial synchronization...")
-    sync_data(synchub_source, postgres_dest, SCHEMAS_TO_SYNC, TABLE_PREFIX)
-    
+        sys.exit(1)
+
+    synchub_source = SyncHubSQLServerSource(
+        SYNCHUB_SERVER, SYNCHUB_DATABASE, SYNCHUB_USERNAME, SYNCHUB_PASSWORD
+    )
+    postgres_dest = PostgresSCD2Destination(POSTGRES_CONNECTION)
+
+    def run_sync():
+        scd2_sync(
+            synchub_source,
+            postgres_dest,
+            SCHEMAS_TO_SYNC,
+            TABLE_PREFIX,
+            DEFAULT_PRIMARY_KEY,
+            CREATE_VIEWS,
+        )
+
+    # Parse schedule
+    if SYNC_SCHEDULE.endswith(("m", "h", "d")):
+        interval = SYNC_SCHEDULE
+        if interval.endswith("m"):
+            minutes = int(interval[:-1])
+            schedule.every(minutes).minutes.do(run_sync)
+        elif interval.endswith("h"):
+            hours = int(interval[:-1])
+            schedule.every(hours).hours.do(run_sync)
+        elif interval.endswith("d"):
+            days = int(interval[:-1])
+            schedule.every(days).days.do(run_sync)
+    else:
+        schedule.every().day.at("02:00").do(run_sync)
+
+    logger.info("Running initial sync...")
+    run_sync()
+
     # TODO: Use a loop to run pending scheduled tasks
-    # Start scheduled execution
     # logger.info("Starting scheduled execution. Press Ctrl+C to stop.")
-    
     # try:
     #     while True:
-            # schedule.run_pending()
+    #         schedule.run_pending()
     #         time.sleep(60)
     # except KeyboardInterrupt:
-    #     logger.info("Shutting down scheduler...")
+    #     logger.info("Shutting down...")
     #     sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
