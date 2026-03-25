@@ -1,0 +1,3910 @@
+================================================================================
+PostgreSQL Database Schema Documentation
+================================================================================
+Generated: 2026-03-25 01:35:39
+Database: dinniss-capacity-performance-db-gold
+================================================================================
+
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. Tables
+2. Views
+3. Indexes
+4. Statistics
+
+
+================================================================================
+1. TABLES
+================================================================================
+
+
+Table: excel_budget_tracker
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+month_year                     timestamp without time zone YES        -                   
+actual_gp                      double precision(53) YES        -                   
+gp_target                      double precision(53) YES        -                   
+Row Count: 41
+
+Sample Data (first 3 rows):
+month_year, actual_gp, gp_target
+2018-11-01 00:00:00, 74103.9, 70000.0
+2018-12-01 00:00:00, 46353.64, 65000.0
+2019-01-01 00:00:00, 56502.53, 65000.0
+
+================================================================================
+
+Table: excel_incentive_targets
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+staff_name                     text                 YES        -                   
+staff_id                       text                 YES        -                   
+month_year                     timestamp without time zone YES        -                   
+target_billable_hours          bigint(64)           YES        -                   
+target_recorded_2_billable_hrs bigint(64)           YES        -                   
+target_allocated_2_billable_hrs bigint(64)           YES        -                   
+target_invoiced_2_billable_hrs double precision(53) YES        -                   
+updated_on                     timestamp without time zone YES        -                   
+Row Count: 144
+
+Sample Data (first 3 rows):
+staff_name, staff_id, month_year, target_billable_hours, target_recorded_2_billable_hrs...
+Dan Sharpe, 1483B1AF-BDAA-4C85-A, 2022-01-01 00:00:00, 1, 1...
+Dan Sharpe, 1483B1AF-BDAA-4C85-A, 2022-02-01 00:00:00, 1, 1...
+Dan Sharpe, 1483B1AF-BDAA-4C85-A, 2022-03-01 00:00:00, 1, 1...
+
+================================================================================
+
+Table: excel_public_holidays
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+date                           timestamp without time zone YES        -                   
+day                            text                 YES        -                   
+holiday                        text                 YES        -                   
+column1                        text                 YES        -                   
+Row Count: 69
+
+Sample Data (first 3 rows):
+date, day, holiday, column1
+2019-01-02 00:00:00, Mon, Day after New Year's, NaN
+2019-01-25 00:00:00, NaN, NaN, NaN
+2019-02-06 00:00:00, Mon, Waitangi Day, NaN
+
+================================================================================
+
+Table: excel_recorded_invoiced_hours
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+timesheet_uuid                 text                 YES        -                   
+staff                          text                 YES        -                   
+date                           timestamp without time zone YES        -                   
+client                         text                 YES        -                   
+task                           text                 YES        -                   
+recorded_minutes               bigint(64)           YES        -                   
+invoiced_mins                  double precision(53) YES        -                   
+Row Count: 25,355
+
+Sample Data (first 3 rows):
+timesheet_uuid, staff, date, client, task...
+AC6F1D10-ABE3-4A5B-9, Meagan Robertson, 2023-04-03 00:00:00, Tumu Napier Ltd, Project Management...
+2B6F4626-02C6-46FF-A, Dave Simmons, 2023-03-31 00:00:00, Fuso NZ, Project Management...
+1F504681-8E3C-4994-B, Dan Sharpe, 2023-03-31 00:00:00, Fuso NZ, Design and Layout - ...
+
+================================================================================
+
+Table: excel_staff_adjustment_sheet
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+staffname                      text                 YES        -                   
+staff_id                       text                 YES        -                   
+month                          timestamp without time zone YES        -                   
+adjustmentfactor               double precision(53) YES        -                   
+updated_on                     timestamp without time zone YES        -                   
+Row Count: 292
+
+Sample Data (first 3 rows):
+staffname, staff_id, month, adjustmentfactor, updated_on
+Carl Patton, 62EF03A0-8EBD-4B4C-8, 2021-01-01 00:00:00, 1.0, 2022-02-23 00:00:00
+Carl Patton, 62EF03A0-8EBD-4B4C-8, 2021-02-01 00:00:00, 1.0, 2022-02-24 00:00:00
+Carl Patton, 62EF03A0-8EBD-4B4C-8, 2021-03-01 00:00:00, 1.0, 2022-02-25 00:00:00
+
+================================================================================
+
+Table: excel_staff_target_sheet
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+staff_name                     text                 YES        -                   
+staff_id                       text                 YES        -                   
+startofmonth                   timestamp without time zone YES        -                   
+targetutilisation              double precision(53) YES        -                   
+targetdinnissinternalefficiency bigint(64)           YES        -                   
+completedtaskefficiency        double precision(53) YES        -                   
+coachingtarget                 double precision(53) YES        -                   
+targetpotentialprofitability   double precision(53) YES        -                   
+targetactualprofitability      double precision(53) YES        -                   
+invoiced_time                  double precision(53) YES        -                   
+Row Count: 154
+
+Sample Data (first 3 rows):
+staff_name, staff_id, startofmonth, targetutilisation, targetdinnissinternalefficiency...
+Dave Simmons, E7422737-B4A6-4760-A, 2023-03-01 00:00:00, 1.0, 1...
+Dave Simmons, E7422737-B4A6-4760-A, 2023-04-01 00:00:00, 1.0, 1...
+Dave Simmons, E7422737-B4A6-4760-A, 2023-05-01 00:00:00, 1.0, 1...
+
+================================================================================
+
+Table: excel_workable_days
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+staffname                      text                 YES        -                   
+staffid                        text                 YES        -                   
+day_of_week                    bigint(64)           YES        -                   
+day_name                       text                 YES        -                   
+working_day                    boolean              YES        -                   
+adjustment_factor              double precision(53) YES        -                   
+updated_on                     timestamp without time zone YES        -                   
+Row Count: 56
+
+Sample Data (first 3 rows):
+staffname, staffid, day_of_week, day_name, working_day...
+Dan Sharpe, 1483B1AF-BDAA-4C85-A, 1, Sunday, False...
+Dan Sharpe, 1483B1AF-BDAA-4C85-A, 2, Monday, True...
+Dan Sharpe, 1483B1AF-BDAA-4C85-A, 3, Tuesday, True...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_category
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 3
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+9c2c2ffc-a727-430f-8, 2026-03-09 03:57:12, 1, False, NULL...
+9c2c2ffc-ab16-4172-8, 2026-03-09 03:57:12, 1, False, NULL...
+9c2c2ffc-afb4-4c2f-a, 2026-03-09 03:57:12, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_client
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+ClientGroupUUID                uuid                 YES        -                   
+ClientGroupDetailsRemoteID     character varying(200) YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 0
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_clientcontact
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+ClientDetailsRemoteID          character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+ContactUUID                    uuid                 YES        -                   
+ClientDetailsUUID              uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 613
+
+Sample Data (first 3 rows):
+RemoteID, ClientDetailsRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+9c2c322c-6491-48d6-b, 9c2c3181-6cc3-48d0-9, 2026-02-05 04:27:01, 1, False...
+9c2c322c-7f21-4a8d-9, 9c2c3181-6cc3-48d0-9, 2026-02-05 04:27:01, 1, False...
+9c2c322c-996f-41a4-b, 9c2c3181-6cc3-48d0-9, 2026-02-05 04:27:01, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_clientdetails
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      text                 YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+FirstName                      text                 YES        -                   
+LastName                       text                 YES        -                   
+OtherName                      text                 YES        -                   
+Email                          text                 YES        -                   
+Address                        text                 YES        -                   
+City                           text                 YES        -                   
+Region                         text                 YES        -                   
+PostCode                       text                 YES        -                   
+Country                        text                 YES        -                   
+PostalAddress                  text                 YES        -                   
+PostalCity                     text                 YES        -                   
+PostalRegion                   text                 YES        -                   
+PostalPostCode                 text                 YES        -                   
+PostalCountry                  text                 YES        -                   
+Phone                          text                 YES        -                   
+Fax                            text                 YES        -                   
+Website                        text                 YES        -                   
+ReferralSource                 text                 YES        -                   
+ExportCode                     text                 YES        -                   
+IsProspect                     text                 YES        -                   
+IsArchived                     text                 YES        -                   
+TypeName                       text                 YES        -                   
+TypePaymentTerm                text                 YES        -                   
+TypeCostMarkup                 numeric(28,10)       YES        -                   
+TypePaymentDay                 integer(32)          YES        -                   
+AccountManagerUUID             uuid                 YES        -                   
+AccountManagerName             text                 YES        -                   
+JobManagerUUID                 uuid                 YES        -                   
+JobManagerName                 text                 YES        -                   
+NoteSummary                    text                 YES        -                   
+BillingClientUUID              uuid                 YES        -                   
+TaxNumber                      text                 YES        -                   
+CompanyNumber                  text                 YES        -                   
+BusinessNumber                 text                 YES        -                   
+BranchNumber                   text                 YES        -                   
+BusinessStructure              text                 YES        -                   
+GSTRegistered                  text                 YES        -                   
+PrepareGST                     text                 YES        -                   
+SignedTaxAuthority             text                 YES        -                   
+TaxAgent                       text                 YES        -                   
+AgencyStatus                   text                 YES        -                   
+PrepareActivityStatement       text                 YES        -                   
+PrepareTaxReturn               text                 YES        -                   
+ActiveAtoClient                text                 YES        -                   
+ClientCode                     text                 YES        -                   
+BalanceMonth                   integer(32)          YES        -                   
+BankBSB                        text                 YES        -                   
+BankAccountName                text                 YES        -                   
+BankAccountNumber              text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 512
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+215db40d-acc7-476f-8, 2026-02-05 04:27:01, 1, No, NULL...
+2b6a9969-4a74-4327-9, 2026-02-05 04:27:01, 1, No, NULL...
+308585aa-5afa-4149-b, 2026-02-05 04:27:01, 1, No, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_clientgroupdetails
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Taxable                        text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 0
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_comment
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+NoteRemoteID                   character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Date                           timestamp without time zone YES        -                   
+NoteUUID                       uuid                 YES        -                   
+Text                           text                 YES        -                   
+CreatedBy                      text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 0
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_contact
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+ClientDetailsRemoteID          character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Mobile                         text                 YES        -                   
+Email                          text                 YES        -                   
+Phone                          text                 YES        -                   
+Position                       text                 YES        -                   
+Salutation                     text                 YES        -                   
+Addressee                      text                 YES        -                   
+IsPrimary                      text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 612
+
+Sample Data (first 3 rows):
+RemoteID, ClientDetailsRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+9c2c322c-6491-48d6-b, 9c2c3181-6cc3-48d0-9, 2026-02-05 04:27:01, 1, False...
+9c2c322c-7f21-4a8d-9, 9c2c3181-6cc3-48d0-9, 2026-02-05 04:27:01, 1, False...
+9c2c322c-996f-41a4-b, 9c2c3181-6cc3-48d0-9, 2026-02-05 04:27:01, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_cost
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Description                    text                 YES        -                   
+Code                           text                 YES        -                   
+Note                           text                 YES        -                   
+UnitCost                       numeric(28,10)       YES        -                   
+UnitPrice                      numeric(28,10)       YES        -                   
+IncomeAccount                  text                 YES        -                   
+CostOfSaleAccount              text                 YES        -                   
+SupplierUUID                   uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 116
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+9c2c3044-e4e6-4267-9, 2026-03-09 01:57:14, 1, False, NULL...
+9c2c3044-e989-4bbc-9, 2026-03-09 01:57:14, 1, False, NULL...
+9c2c3044-eda5-4ac6-9, 2026-03-09 01:57:14, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_customfielddefinition
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Type                           text                 YES        -                   
+LinkUrl                        text                 YES        -                   
+UseClient                      boolean              YES        -                   
+UseContact                     boolean              YES        -                   
+UseSupplier                    boolean              YES        -                   
+UseJob                         boolean              YES        -                   
+UseQuote                       boolean              YES        -                   
+UseLead                        boolean              YES        -                   
+UseJobTask                     boolean              YES        -                   
+UseJobCost                     boolean              YES        -                   
+UseJobTime                     boolean              YES        -                   
+Mandatory                      boolean              YES        -                   
+ValueElement                   text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 22
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+9c2c3094-75f7-4d17-9, 2026-03-09 01:27:18, 1, False, NULL...
+9c2c3094-7add-44fb-a, 2026-03-09 01:27:18, 1, False, NULL...
+9c2c3094-80c3-4230-9, 2026-03-09 01:27:18, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_customfielddefinitionoption
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+CustomFieldDefinitionRemoteID  character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+CustomFieldUUID                uuid                 YES        -                   
+Value                          text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 74
+
+Sample Data (first 3 rows):
+RemoteID, CustomFieldDefinitionRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+9c2c3094-75f7-4d17-9, 9c2c3094-75f7-4d17-9, 2026-03-09 01:27:18, 1, False...
+9c2c3094-75f7-4d17-9, 9c2c3094-75f7-4d17-9, 2026-03-09 01:27:18, 1, False...
+9c2c3094-75f7-4d17-9, 9c2c3094-75f7-4d17-9, 2026-03-09 01:27:18, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_invoice
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+ID                             character varying(200) YES        -                   
+Type                           text                 YES        -                   
+Status                         text                 YES        -                   
+JobText                        text                 YES        -                   
+Date                           timestamp without time zone YES        -                   
+DueDate                        timestamp without time zone YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+AmountPaid                     numeric(28,10)       YES        -                   
+AmountOutstanding              numeric(28,10)       YES        -                   
+ClientUUID                     uuid                 YES        -                   
+ContactUUID                    uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 3,016
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+I003632, 2026-02-05 04:34:44, 1, False, 2021-02-16 04:26:51...
+I003637, 2026-02-05 04:35:01, 1, False, 2021-02-20 04:26:51...
+I003638, 2026-02-05 04:35:01, 1, False, 2021-02-20 04:26:51...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_invoicecost
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+InvoiceRemoteID                character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+Description                    text                 YES        -                   
+InvoiceID                      character varying(200) YES        -                   
+LineNumber                     integer(32)          YES        -                   
+JobID                          character varying(200) YES        -                   
+Quantity                       numeric(28,10)       YES        -                   
+UnitCost                       numeric(28,10)       YES        -                   
+UnitPrice                      numeric(28,10)       YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+Code                           text                 YES        -                   
+Note                           text                 YES        -                   
+Billable                       text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 3,497
+
+Sample Data (first 3 rows):
+RemoteID, InvoiceRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+I003632/1, I003632, 2026-02-05 04:34:44, 1, False...
+I003637/1, I003637, 2026-02-05 04:35:01, 1, False...
+I003637/2, I003637, 2026-02-05 04:35:01, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_invoicetask
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+InvoiceRemoteID                character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Description                    text                 YES        -                   
+InvoiceID                      character varying(200) YES        -                   
+LineNumber                     integer(32)          YES        -                   
+JobID                          character varying(200) YES        -                   
+Minutes                        numeric(28,10)       YES        -                   
+BillableRate                   numeric(28,10)       YES        -                   
+Billable                       text                 YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 10,029
+
+Sample Data (first 3 rows):
+RemoteID, InvoiceRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+I003637/1, I003637, 2026-02-05 04:35:01, 1, False...
+I003637/2, I003637, 2026-02-05 04:35:01, 1, False...
+I003637/3, I003637, 2026-02-05 04:35:01, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_jobassignee
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+JobDetailsRemoteID             character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+JobID                          character varying(200) YES        -                   
+StaffID                        uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 21,271
+
+Sample Data (first 3 rows):
+RemoteID, JobDetailsRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+24/9c2c30d8-1e2b-408, 24, 2026-02-05 04:26:59, 1, False...
+24/9c2c30da-0085-46a, 24, 2026-02-05 04:26:59, 1, False...
+24/9c2c30da-f710-445, 24, 2026-02-05 04:26:59, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_jobdetails
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+ID                             character varying(200) YES        -                   
+Name                           text                 YES        -                   
+Description                    text                 YES        -                   
+DateCreatedUtc                 timestamp without time zone YES        -                   
+DateModifiedUtc                timestamp without time zone YES        -                   
+ClientUUID                     uuid                 YES        -                   
+ClientOrderNumber              text                 YES        -                   
+Budget                         numeric(28,10)       YES        -                   
+State                          text                 YES        -                   
+Type                           text                 YES        -                   
+StartDate                      timestamp without time zone YES        -                   
+DueDate                        timestamp without time zone YES        -                   
+JobContactUUID                 uuid                 YES        -                   
+CompletedDate                  timestamp without time zone YES        -                   
+ManagerUUID                    uuid                 YES        -                   
+ManagerName                    text                 YES        -                   
+PartnerUUID                    uuid                 YES        -                   
+PartnerName                    text                 YES        -                   
+WebURL                         text                 YES        -                   
+ApprovedQuoteUUID              uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 7,934
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+10, 2026-02-05 04:26:59, 1, False, 2011-12-09 16:57:29...
+24, 2026-02-05 04:26:59, 1, False, 2011-12-09 16:57:30...
+6, 2026-02-05 04:26:59, 1, False, 2011-12-09 16:57:29...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_jobtask
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+JobDetailsRemoteID             character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Description                    text                 YES        -                   
+TaskUUID                       uuid                 YES        -                   
+EstimatedMinutes               numeric(28,10)       YES        -                   
+Folder                         text                 YES        -                   
+ActualMinutes                  numeric(28,10)       YES        -                   
+Billable                       boolean              YES        -                   
+Completed                      boolean              YES        -                   
+StartDate                      timestamp without time zone YES        -                   
+DueDate                        timestamp without time zone YES        -                   
+ContactUUID                    uuid                 YES        -                   
+ManagerUUID                    uuid                 YES        -                   
+PartnerUUID                    uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 33,571
+
+Sample Data (first 3 rows):
+RemoteID, JobDetailsRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+9c2c348c-d4c1-4e85-9, J000001, 2026-02-05 04:26:59, 1, False...
+9c2c348c-da8f-4716-b, J000001, 2026-02-05 04:26:59, 1, False...
+9c2c348c-e0bb-4e0a-9, J000001, 2026-02-05 04:26:59, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_jobtaskassignee
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+TaskRemoteID                   character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+JobTaskID                      uuid                 YES        -                   
+StaffID                        uuid                 YES        -                   
+AllocatedMinutes               numeric(28,10)       YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 29,499
+
+Sample Data (first 3 rows):
+RemoteID, TaskRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+9c2c348d-946f-448b-8, 9c2c348d-946f-448b-8, 2026-02-05 04:26:59, 1, False...
+9c2c348d-946f-448b-8, 9c2c348d-946f-448b-8, 2026-02-05 04:26:59, 1, False...
+9c2c348d-946f-448b-8, 9c2c348d-946f-448b-8, 2026-02-05 04:26:59, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_lead
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Description                    text                 YES        -                   
+State                          text                 YES        -                   
+EstimatedValue                 numeric(28,10)       YES        -                   
+Date                           timestamp without time zone YES        -                   
+DateWonLost                    text                 YES        -                   
+Category                       text                 YES        -                   
+Dropbox                        text                 YES        -                   
+ClientUUID                     uuid                 YES        -                   
+ContactUUID                    uuid                 YES        -                   
+OwnerUUID                      uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 67
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+9c2c32be-51ab-48e7-a, 2026-02-05 04:39:30, 1, False, 2021-11-23 04:26:52...
+9c2c32be-5be9-4154-8, 2026-02-05 04:39:34, 1, False, 2021-11-25 04:26:52...
+9c2c32be-668b-4a5b-b, 2026-02-05 04:39:34, 1, False, 2021-11-25 04:26:52...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_leadactivity
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+LeadUUID                       uuid                 YES        -                   
+Iterator                       integer(32)          YES        -                   
+Date                           timestamp without time zone YES        -                   
+Subject                        text                 YES        -                   
+Completed                      boolean              YES        -                   
+LeadActivityOwnerUUID          uuid                 YES        -                   
+LeadRemoteID                   character varying(200) YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 49
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+«1»«9d839339-4929-42, 2026-02-05 05:24:27, 1, False, NULL...
+«1»«9d83c2a9-5905-4c, 2026-02-05 05:24:31, 1, False, NULL...
+«1»«9d854539-5ad0-47, 2026-02-05 05:24:31, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_leadhistory
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+LeadUUID                       uuid                 YES        -                   
+Iterator                       integer(32)          YES        -                   
+Detail                         text                 YES        -                   
+Date                           timestamp without time zone YES        -                   
+Staff                          text                 YES        -                   
+Type                           text                 YES        -                   
+LeadRemoteID                   character varying(200) YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 400
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+«1»«9c2c32be-51ab-48, 2026-02-05 04:39:30, 1, False, 2021-11-23 03:55:54...
+«1»«9c2c32be-5be9-41, 2026-02-05 04:39:34, 1, False, 2021-11-23 23:16:52...
+«1»«9c2c32be-668b-4a, 2026-02-05 04:39:34, 1, False, 2021-11-23 23:45:01...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_milestone
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+JobDetailsRemoteID             character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Description                    text                 YES        -                   
+JobID                          character varying(200) YES        -                   
+Date                           timestamp without time zone YES        -                   
+Completed                      boolean              YES        -                   
+Folder                         text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 423
+
+Sample Data (first 3 rows):
+RemoteID, JobDetailsRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+9c2c38f3-76dc-46c9-a, J000001, 2026-02-05 04:26:59, 1, False...
+9c2c38f3-7bb4-4d5d-a, J000001, 2026-02-05 04:26:59, 1, False...
+9c2c38f3-8046-479c-9, J000001, 2026-02-05 04:26:59, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_note
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+JobDetailsRemoteID             character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Date                           timestamp without time zone YES        -                   
+JobID                          character varying(200) YES        -                   
+Title                          text                 YES        -                   
+Folder                         text                 YES        -                   
+Text                           text                 YES        -                   
+CreatedBy                      text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 1
+
+Sample Data (first 3 rows):
+RemoteID, JobDetailsRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+9c88a837-a024-4eef-a, J007748, 2026-02-05 04:26:59, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_purchaseorderdetails
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+TimeZone                       text                 YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+ID                             character varying(200) YES        -                   
+Description                    text                 YES        -                   
+State                          text                 YES        -                   
+Date                           timestamp without time zone YES        -                   
+DeliveryAddress                text                 YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+JobID                          character varying(200) YES        -                   
+SupplierUUID                   uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 1,750
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, TimeZone, IsDeleted...
+PO001651, 2026-02-05 04:36:14, 1, NULL, False...
+PO001652, 2026-02-05 04:36:21, 1, NULL, False...
+PO001653, 2026-02-05 04:36:21, 1, NULL, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_purchaseorderdetailscost
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+PurchaseOrderDetailsRemoteID   character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+Description                    text                 YES        -                   
+PurchaseOrderID                character varying(200) YES        -                   
+LineNumber                     integer(32)          YES        -                   
+Note                           text                 YES        -                   
+Code                           text                 YES        -                   
+Quantity                       numeric(28,10)       YES        -                   
+UnitCost                       numeric(28,10)       YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 2,115
+
+Sample Data (first 3 rows):
+RemoteID, PurchaseOrderDetailsRemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted...
+PO001651/1, PO001651, 2026-02-05 04:36:14, 1, False...
+PO001652/1, PO001652, 2026-02-05 04:36:21, 1, False...
+PO001653/1, PO001653, 2026-02-05 04:36:21, 1, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_quote
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+TimeZone                       text                 YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+ID                             character varying(200) YES        -                   
+Name                           text                 YES        -                   
+Description                    text                 YES        -                   
+JobUUID                        uuid                 YES        -                   
+JobID                          character varying(200) YES        -                   
+LeadUUID                       uuid                 YES        -                   
+Type                           text                 YES        -                   
+State                          text                 YES        -                   
+Budget                         numeric(28,10)       YES        -                   
+OptionExplanation              text                 YES        -                   
+Date                           timestamp without time zone YES        -                   
+ValidDate                      timestamp without time zone YES        -                   
+EstimatedCost                  numeric(28,10)       YES        -                   
+EstimatedCostTax               numeric(28,10)       YES        -                   
+EstimatedCostIncludingTax      numeric(28,10)       YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+ClientUUID                     uuid                 YES        -                   
+ContactUUID                    uuid                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 128
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, TimeZone, IsDeleted...
+Q001040, 2026-02-05 04:36:18, 1, NULL, False...
+Q001041, 2026-02-05 04:36:27, 1, NULL, False...
+Q001042, 2026-02-05 04:36:27, 1, NULL, False...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_quotecost
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+Description                    text                 YES        -                   
+QuoteID                        character varying(200) YES        -                   
+CostNumber                     integer(32)          YES        -                   
+Note                           text                 YES        -                   
+Code                           text                 YES        -                   
+Billable                       text                 YES        -                   
+Quantity                       numeric(28,10)       YES        -                   
+UnitCost                       numeric(28,10)       YES        -                   
+UnitPrice                      numeric(28,10)       YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+QuoteRemoteID                  character varying(200) YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 149
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+Q001040/1, 2026-02-05 04:36:18, 1, False, NULL...
+Q001041/1, 2026-02-05 04:36:27, 1, False, NULL...
+Q001042/1, 2026-02-05 04:36:27, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_quoteoption
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+Description                    text                 YES        -                   
+QuoteID                        character varying(200) YES        -                   
+OptionNumber                   integer(32)          YES        -                   
+Note                           text                 YES        -                   
+Code                           text                 YES        -                   
+Quantity                       numeric(28,10)       YES        -                   
+UnitCost                       numeric(28,10)       YES        -                   
+UnitPrice                      numeric(28,10)       YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+QuoteRemoteID                  character varying(200) YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 20
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+Q001105/1, 2026-02-05 05:37:40, 1, False, NULL...
+Q001121/1, 2026-02-05 06:16:51, 1, False, NULL...
+Q001129/1, 2026-02-05 06:19:05, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_quotetask
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+Name                           text                 YES        -                   
+Description                    text                 YES        -                   
+QuoteID                        character varying(200) YES        -                   
+TaskNumber                     integer(32)          YES        -                   
+EstimatedMinutes               numeric(28,10)       YES        -                   
+BillableRate                   numeric(28,10)       YES        -                   
+Billable                       text                 YES        -                   
+Amount                         numeric(28,10)       YES        -                   
+AmountTax                      numeric(28,10)       YES        -                   
+AmountIncludingTax             numeric(28,10)       YES        -                   
+QuoteRemoteID                  character varying(200) YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 376
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+Q001041/1, 2026-02-05 04:36:27, 1, False, NULL...
+Q001041/2, 2026-02-05 04:36:27, 1, False, NULL...
+Q001041/3, 2026-02-05 04:36:27, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_staff
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Email                          text                 YES        -                   
+Phone                          text                 YES        -                   
+Mobile                         text                 YES        -                   
+Address                        text                 YES        -                   
+PayrollCode                    text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 12
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+9c2c30d8-1e2b-4082-8, 2026-03-08 22:27:08, 1, False, NULL...
+9c2c30da-0085-46a8-a, 2026-03-08 22:27:08, 1, False, NULL...
+9c2c30da-f710-4451-b, 2026-03-08 22:27:08, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_supplier
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Address                        text                 YES        -                   
+City                           text                 YES        -                   
+Region                         text                 YES        -                   
+PostCode                       text                 YES        -                   
+Country                        text                 YES        -                   
+PostalAddress                  text                 YES        -                   
+PostalCity                     text                 YES        -                   
+PostalRegion                   text                 YES        -                   
+PostalPostCode                 text                 YES        -                   
+PostalCountry                  text                 YES        -                   
+Phone                          text                 YES        -                   
+Fax                            text                 YES        -                   
+Website                        text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 500
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+9c2c3026-a137-41b8-9, 2026-03-08 21:57:10, 1, False, NULL...
+9c2c3026-a81d-4fa2-9, 2026-03-08 21:57:10, 1, False, NULL...
+9c2c3026-af22-447f-8, 2026-03-08 21:57:10, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_task
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+Description                    text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 34
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+9c2c312b-9c9a-4aa3-8, 2026-03-08 21:27:20, 1, False, NULL...
+9c2c312b-a397-4676-a, 2026-03-08 21:27:20, 1, False, NULL...
+9c2c312b-bc5c-4825-8, 2026-03-08 21:27:20, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_template
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+Name                           text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 54
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+9c2c2fff-ed4e-47e1-b, 2026-03-08 20:57:23, 1, False, NULL...
+9c2c3000-068d-4942-a, 2026-03-08 20:57:23, 1, False, NULL...
+9c2c3000-18f1-42d1-a, 2026-03-08 20:57:23, 1, False, NULL...
+
+================================================================================
+
+Table: synchub_workflowmax2_13307_1_time
+--------------------------------------------------------------------------------
+
+Columns:
+Column Name                    Type                 Nullable   Default             
+--------------------------------------------------------------------------------
+RemoteID                       character varying(200) YES        -                   
+WhenUpsertedIntoDataStore      timestamp without time zone YES        -                   
+MirrorRemoteID                 integer(32)          YES        -                   
+IsDeleted                      boolean              YES        -                   
+WhenCreated                    timestamp without time zone YES        -                   
+WhenModified                   timestamp without time zone YES        -                   
+UUID                           uuid                 YES        -                   
+ID                             text                 YES        -                   
+JobID                          character varying(200) YES        -                   
+StaffMemberUUID                uuid                 YES        -                   
+TaskUUID                       uuid                 YES        -                   
+Date                           timestamp without time zone YES        -                   
+Minutes                        integer(32)          YES        -                   
+Note                           text                 YES        -                   
+Billable                       boolean              YES        -                   
+InvoiceUUID                    uuid                 YES        -                   
+InvoiceTaskUUID                uuid                 YES        -                   
+Start                          text                 YES        -                   
+End                            text                 YES        -                   
+_scd_id                        bigint(64)           NO         nextval('synchub_wor
+_scd_valid_from                timestamp without time zone NO         CURRENT_TIMESTAMP   
+_scd_valid_to                  timestamp without time zone YES        -                   
+_scd_is_current                boolean              NO         true                
+_scd_source_hash               character varying(64) YES        -                   
+
+Primary Key: _scd_id
+Row Count: 58,292
+
+Sample Data (first 3 rows):
+RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
+02c8d85e-b9e9-4a3e-b, 2026-02-05 06:47:59, 1, False, 2024-11-27 04:26:55...
+0371f7ce-f3df-4203-b, 2026-02-05 06:51:42, 1, False, 2025-02-19 04:26:55...
+0765c44f-b2c6-4a14-8, 2026-02-05 06:52:21, 1, False, 2025-03-05 04:26:55...
+
+================================================================================
+
+
+================================================================================
+2. VIEWS
+================================================================================
+
+
+View: 1_Job_Task_Details_Table
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT (((jt."JobDetailsRemoteID")::text || jt."UUID") || jta."UUID") AS "Job_Task_Staff_ID",
+    jt."JobDetailsRemoteID" AS "Job_ID",
+    jt."UUID" AS "Task_UUID",
+    jt."Name" AS "Task_Name",
+    jt."EstimatedMinutes",
+    jt."ActualMinutes",
+    jt."Billable" AS "Task_Billable",
+    jt."Completed" AS "Task_Completed",
+    jta."UUID" AS "Staff_UUID",
+    jta."Name" AS "Staff_Name",
+    cd."Name" AS "Client_Name",
+    jt."StartDate",
+    jt."DueDate",
+    jta."AllocatedMinutes" AS "Task_Allocated_Mins"
+   FROM (((jobtask jt
+     LEFT JOIN jobtaskassignee jta ON ((jta."JobTaskID" = (jt."RemoteID")::uuid)))
+     LEFT JOIN jobdetails jd ON (((jd."RemoteID")::text = (jt."JobDetailsRemoteID")::text)))
+     LEFT JOIN clientdetails cd ON ((cd."UUID" = jd."ClientUUID")))
+  WHERE ((jt."IsDeleted" = false) AND (jta."Name" IS NOT NULL) AND (jta."Name" <> ALL (ARRAY['Anna Williams'::text, 'Conor Cameron'::text, 'Conor O''Brien'::text, 'Dinniss'::text, 'Sahar Sedaghat'::text, 'The OLD - Dani Millar'::text])));
+
+Columns:
+  - Job_Task_Staff_ID (text)
+  - Job_ID (character varying)
+  - Task_UUID (uuid)
+  - Task_Name (text)
+  - EstimatedMinutes (numeric)
+  - ActualMinutes (numeric)
+  - Task_Billable (boolean)
+  - Task_Completed (boolean)
+  - Staff_UUID (uuid)
+  - Staff_Name (text)
+  - Client_Name (text)
+  - StartDate (timestamp without time zone)
+  - DueDate (timestamp without time zone)
+  - Task_Allocated_Mins (numeric)
+
+Row Count: 26,923
+
+================================================================================
+
+View: 2_Staff_Task_Allocation_byDay
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT c."Date",
+    c."PublicHoliday",
+    c."Weekday",
+    c."WeekEnd",
+    c."StartOfMonth",
+    c."EndOfMonth",
+    c."Is_Range_for_Invoicing",
+    k."Job_Task_Staff_ID",
+    k."Job_ID",
+    k."Staff_Name",
+    k."Task_Name",
+    k."Client_Name",
+    k."Job_Name",
+    k."Task_Category",
+    k."Task_Type1",
+        CASE
+            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text)) THEN false
+            ELSE true
+        END AS "Is_Client",
+        CASE
+            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Task_Type1" = 'Coaching'::text)) THEN false
+            ELSE true
+        END AS "Is_Billable",
+        CASE
+            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Task_Type1" = 'Coaching'::text)) THEN 'Not Billable'::text
+            ELSE 'Billable'::text
+        END AS "Billable_Selector"
+   FROM (key01_calendar_date c
+     CROSS JOIN key02_job_task_staff_id k);
+
+Columns:
+  - Date (date)
+  - PublicHoliday (boolean)
+  - Weekday (integer)
+  - WeekEnd (boolean)
+  - StartOfMonth (date)
+  - EndOfMonth (date)
+  - Is_Range_for_Invoicing (boolean)
+  - Job_Task_Staff_ID (text)
+  - Job_ID (character varying)
+  - Staff_Name (text)
+  - Task_Name (text)
+  - Client_Name (text)
+  - Job_Name (text)
+  - Task_Category (text)
+  - Task_Type1 (text)
+  - Is_Client (boolean)
+  - Is_Billable (boolean)
+  - Billable_Selector (text)
+
+Row Count: 64,215,753
+
+================================================================================
+
+View: 3_Staff_Performance_Table
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT c."Date",
+    c."PublicHoliday",
+    c."Weekday",
+    c."WeekEnd",
+    c."StartOfMonth",
+    c."EndOfMonth",
+    c."Is_Range_for_Invoicing",
+    s."Staff_UUID",
+    s."Staff_Name"
+   FROM (key01_calendar_date c
+     CROSS JOIN key03_staff_table s);
+
+Columns:
+  - Date (date)
+  - PublicHoliday (boolean)
+  - Weekday (integer)
+  - WeekEnd (boolean)
+  - StartOfMonth (date)
+  - EndOfMonth (date)
+  - Is_Range_for_Invoicing (boolean)
+  - Staff_UUID (uuid)
+  - Staff_Name (text)
+
+Row Count: 80,682
+
+================================================================================
+
+View: 4_Timesheet_Table
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT (((t."JobID")::text || t."TaskUUID") || t."StaffMemberUUID") AS "Job_Task_Staff_ID",
+    t."UUID" AS "Timesheet_UUID",
+    t."JobID" AS "Job_ID",
+    t."TaskUUID" AS "Task_ID",
+    t."StaffMemberUUID" AS "Staff_ID",
+    s."Staff_Name",
+    t."Note" AS "Timesheet_Notes",
+    t."Billable",
+    t."InvoiceUUID" AS "Invoice_ID",
+    t."InvoiceTaskUUID" AS "Invoice_Task_ID",
+    t."Date",
+    t."Minutes" AS "Recorded_Minutes"
+   FROM ("time" t
+     LEFT JOIN key03_staff_table s ON ((s."Staff_UUID" = t."StaffMemberUUID")))
+  WHERE ((t."Date" >= '2020-01-01 00:00:00'::timestamp without time zone) AND (s."Staff_Name" IS NOT NULL));
+
+Columns:
+  - Job_Task_Staff_ID (text)
+  - Timesheet_UUID (uuid)
+  - Job_ID (character varying)
+  - Task_ID (uuid)
+  - Staff_ID (uuid)
+  - Staff_Name (text)
+  - Timesheet_Notes (text)
+  - Billable (boolean)
+  - Invoice_ID (uuid)
+  - Invoice_Task_ID (uuid)
+  - Date (timestamp without time zone)
+  - Recorded_Minutes (integer)
+
+Row Count: 58,292
+
+================================================================================
+
+View: budget_tracker
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT month_year,
+    actual_gp,
+    gp_target
+   FROM excel_budget_tracker;
+
+Columns:
+  - month_year (timestamp without time zone)
+  - actual_gp (double precision)
+  - gp_target (double precision)
+
+Row Count: 41
+
+================================================================================
+
+View: category
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name"
+   FROM synchub_workflowmax2_13307_1_category
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+
+Row Count: 3
+
+================================================================================
+
+View: clientcontact
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "ClientDetailsRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "ContactUUID",
+    "ClientDetailsUUID"
+   FROM synchub_workflowmax2_13307_1_clientcontact
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - ClientDetailsRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - ContactUUID (uuid)
+  - ClientDetailsUUID (uuid)
+
+Row Count: 613
+
+================================================================================
+
+View: clientdetails
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "FirstName",
+    "LastName",
+    "OtherName",
+    "Email",
+    "Address",
+    "City",
+    "Region",
+    "PostCode",
+    "Country",
+    "PostalAddress",
+    "PostalCity",
+    "PostalRegion",
+    "PostalPostCode",
+    "PostalCountry",
+    "Phone",
+    "Fax",
+    "Website",
+    "ReferralSource",
+    "ExportCode",
+    "IsProspect",
+    "IsArchived",
+    "TypeName",
+    "TypePaymentTerm",
+    "TypeCostMarkup",
+    "TypePaymentDay",
+    "AccountManagerUUID",
+    "AccountManagerName",
+    "JobManagerUUID",
+    "JobManagerName",
+    "NoteSummary",
+    "BillingClientUUID",
+    "TaxNumber",
+    "CompanyNumber",
+    "BusinessNumber",
+    "BranchNumber",
+    "BusinessStructure",
+    "GSTRegistered",
+    "PrepareGST",
+    "SignedTaxAuthority",
+    "TaxAgent",
+    "AgencyStatus",
+    "PrepareActivityStatement",
+    "PrepareTaxReturn",
+    "ActiveAtoClient",
+    "ClientCode",
+    "BalanceMonth",
+    "BankBSB",
+    "BankAccountName",
+    "BankAccountNumber"
+   FROM synchub_workflowmax2_13307_1_clientdetails
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (text)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - FirstName (text)
+  - LastName (text)
+  - OtherName (text)
+  - Email (text)
+  - Address (text)
+  - City (text)
+  - Region (text)
+  - PostCode (text)
+  - Country (text)
+  - PostalAddress (text)
+  - PostalCity (text)
+  - PostalRegion (text)
+  - PostalPostCode (text)
+  - PostalCountry (text)
+  - Phone (text)
+  - Fax (text)
+  - Website (text)
+  - ReferralSource (text)
+  - ExportCode (text)
+  - IsProspect (text)
+  - IsArchived (text)
+  - TypeName (text)
+  - TypePaymentTerm (text)
+  - TypeCostMarkup (numeric)
+  - TypePaymentDay (integer)
+  - AccountManagerUUID (uuid)
+  - AccountManagerName (text)
+  - JobManagerUUID (uuid)
+  - JobManagerName (text)
+  - NoteSummary (text)
+  - BillingClientUUID (uuid)
+  - TaxNumber (text)
+  - CompanyNumber (text)
+  - BusinessNumber (text)
+  - BranchNumber (text)
+  - BusinessStructure (text)
+  - GSTRegistered (text)
+  - PrepareGST (text)
+  - SignedTaxAuthority (text)
+  - TaxAgent (text)
+  - AgencyStatus (text)
+  - PrepareActivityStatement (text)
+  - PrepareTaxReturn (text)
+  - ActiveAtoClient (text)
+  - ClientCode (text)
+  - BalanceMonth (integer)
+  - BankBSB (text)
+  - BankAccountName (text)
+  - BankAccountNumber (text)
+
+Row Count: 512
+
+================================================================================
+
+View: contact
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "ClientDetailsRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "Mobile",
+    "Email",
+    "Phone",
+    "Position",
+    "Salutation",
+    "Addressee",
+    "IsPrimary"
+   FROM synchub_workflowmax2_13307_1_contact
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - ClientDetailsRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - Mobile (text)
+  - Email (text)
+  - Phone (text)
+  - Position (text)
+  - Salutation (text)
+  - Addressee (text)
+  - IsPrimary (text)
+
+Row Count: 612
+
+================================================================================
+
+View: cost
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Description",
+    "Code",
+    "Note",
+    "UnitCost",
+    "UnitPrice",
+    "IncomeAccount",
+    "CostOfSaleAccount",
+    "SupplierUUID"
+   FROM synchub_workflowmax2_13307_1_cost
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Description (text)
+  - Code (text)
+  - Note (text)
+  - UnitCost (numeric)
+  - UnitPrice (numeric)
+  - IncomeAccount (text)
+  - CostOfSaleAccount (text)
+  - SupplierUUID (uuid)
+
+Row Count: 116
+
+================================================================================
+
+View: customfielddefinition
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "Type",
+    "LinkUrl",
+    "UseClient",
+    "UseContact",
+    "UseSupplier",
+    "UseJob",
+    "UseQuote",
+    "UseLead",
+    "UseJobTask",
+    "UseJobCost",
+    "UseJobTime",
+    "Mandatory",
+    "ValueElement"
+   FROM synchub_workflowmax2_13307_1_customfielddefinition
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - Type (text)
+  - LinkUrl (text)
+  - UseClient (boolean)
+  - UseContact (boolean)
+  - UseSupplier (boolean)
+  - UseJob (boolean)
+  - UseQuote (boolean)
+  - UseLead (boolean)
+  - UseJobTask (boolean)
+  - UseJobCost (boolean)
+  - UseJobTime (boolean)
+  - Mandatory (boolean)
+  - ValueElement (text)
+
+Row Count: 22
+
+================================================================================
+
+View: customfielddefinitionoption
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "CustomFieldDefinitionRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "CustomFieldUUID",
+    "Value"
+   FROM synchub_workflowmax2_13307_1_customfielddefinitionoption
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - CustomFieldDefinitionRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - CustomFieldUUID (uuid)
+  - Value (text)
+
+Row Count: 74
+
+================================================================================
+
+View: incentive_targets
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT staff_name,
+    staff_id,
+    month_year,
+    target_billable_hours,
+    target_recorded_2_billable_hrs,
+    target_allocated_2_billable_hrs,
+    target_invoiced_2_billable_hrs,
+    updated_on
+   FROM excel_incentive_targets;
+
+Columns:
+  - staff_name (text)
+  - staff_id (text)
+  - month_year (timestamp without time zone)
+  - target_billable_hours (bigint)
+  - target_recorded_2_billable_hrs (bigint)
+  - target_allocated_2_billable_hrs (bigint)
+  - target_invoiced_2_billable_hrs (double precision)
+  - updated_on (timestamp without time zone)
+
+Row Count: 144
+
+================================================================================
+
+View: invoice
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "ID",
+    "Type",
+    "Status",
+    "JobText",
+    "Date",
+    "DueDate",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax",
+    "AmountPaid",
+    "AmountOutstanding",
+    "ClientUUID",
+    "ContactUUID"
+   FROM synchub_workflowmax2_13307_1_invoice
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - ID (character varying)
+  - Type (text)
+  - Status (text)
+  - JobText (text)
+  - Date (timestamp without time zone)
+  - DueDate (timestamp without time zone)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+  - AmountPaid (numeric)
+  - AmountOutstanding (numeric)
+  - ClientUUID (uuid)
+  - ContactUUID (uuid)
+
+Row Count: 3,016
+
+================================================================================
+
+View: invoicecost
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "InvoiceRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "Description",
+    "InvoiceID",
+    "LineNumber",
+    "JobID",
+    "Quantity",
+    "UnitCost",
+    "UnitPrice",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax",
+    "Code",
+    "Note",
+    "Billable"
+   FROM synchub_workflowmax2_13307_1_invoicecost
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - InvoiceRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - Description (text)
+  - InvoiceID (character varying)
+  - LineNumber (integer)
+  - JobID (character varying)
+  - Quantity (numeric)
+  - UnitCost (numeric)
+  - UnitPrice (numeric)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+  - Code (text)
+  - Note (text)
+  - Billable (text)
+
+Row Count: 3,497
+
+================================================================================
+
+View: invoicetask
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "InvoiceRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "Description",
+    "InvoiceID",
+    "LineNumber",
+    "JobID",
+    "Minutes",
+    "BillableRate",
+    "Billable",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax"
+   FROM synchub_workflowmax2_13307_1_invoicetask
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - InvoiceRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - Description (text)
+  - InvoiceID (character varying)
+  - LineNumber (integer)
+  - JobID (character varying)
+  - Minutes (numeric)
+  - BillableRate (numeric)
+  - Billable (text)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+
+Row Count: 10,029
+
+================================================================================
+
+View: jobassignee
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "JobDetailsRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "JobID",
+    "StaffID"
+   FROM synchub_workflowmax2_13307_1_jobassignee
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - JobDetailsRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - JobID (character varying)
+  - StaffID (uuid)
+
+Row Count: 21,271
+
+================================================================================
+
+View: jobdetails
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "ID",
+    "Name",
+    "Description",
+    "DateCreatedUtc",
+    "DateModifiedUtc",
+    "ClientUUID",
+    "ClientOrderNumber",
+    "Budget",
+    "State",
+    "Type",
+    "StartDate",
+    "DueDate",
+    "JobContactUUID",
+    "CompletedDate",
+    "ManagerUUID",
+    "ManagerName",
+    "PartnerUUID",
+    "PartnerName",
+    "WebURL",
+    "ApprovedQuoteUUID"
+   FROM synchub_workflowmax2_13307_1_jobdetails
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - ID (character varying)
+  - Name (text)
+  - Description (text)
+  - DateCreatedUtc (timestamp without time zone)
+  - DateModifiedUtc (timestamp without time zone)
+  - ClientUUID (uuid)
+  - ClientOrderNumber (text)
+  - Budget (numeric)
+  - State (text)
+  - Type (text)
+  - StartDate (timestamp without time zone)
+  - DueDate (timestamp without time zone)
+  - JobContactUUID (uuid)
+  - CompletedDate (timestamp without time zone)
+  - ManagerUUID (uuid)
+  - ManagerName (text)
+  - PartnerUUID (uuid)
+  - PartnerName (text)
+  - WebURL (text)
+  - ApprovedQuoteUUID (uuid)
+
+Row Count: 7,934
+
+================================================================================
+
+View: jobtask
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "JobDetailsRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "Description",
+    "TaskUUID",
+    "EstimatedMinutes",
+    "Folder",
+    "ActualMinutes",
+    "Billable",
+    "Completed",
+    "StartDate",
+    "DueDate",
+    "ContactUUID",
+    "ManagerUUID",
+    "PartnerUUID"
+   FROM synchub_workflowmax2_13307_1_jobtask
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - JobDetailsRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - Description (text)
+  - TaskUUID (uuid)
+  - EstimatedMinutes (numeric)
+  - Folder (text)
+  - ActualMinutes (numeric)
+  - Billable (boolean)
+  - Completed (boolean)
+  - StartDate (timestamp without time zone)
+  - DueDate (timestamp without time zone)
+  - ContactUUID (uuid)
+  - ManagerUUID (uuid)
+  - PartnerUUID (uuid)
+
+Row Count: 33,571
+
+================================================================================
+
+View: jobtaskassignee
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "TaskRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "JobTaskID",
+    "StaffID",
+    "AllocatedMinutes"
+   FROM synchub_workflowmax2_13307_1_jobtaskassignee
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - TaskRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - JobTaskID (uuid)
+  - StaffID (uuid)
+  - AllocatedMinutes (numeric)
+
+Row Count: 29,499
+
+================================================================================
+
+View: key01_calendar_date
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT (gs)::date AS "Date",
+    (EXISTS ( SELECT 1
+           FROM excel_public_holidays eph
+          WHERE (eph.date = (gs.gs)::date))) AS "PublicHoliday",
+    ((EXTRACT(dow FROM gs))::integer + 1) AS "Weekday",
+    ((((EXTRACT(dow FROM gs))::integer + 1) < 2) OR (((EXTRACT(dow FROM gs))::integer + 1) > 6)) AS "WeekEnd",
+    (date_trunc('month'::text, gs))::date AS "StartOfMonth",
+    (((date_trunc('month'::text, gs) + '1 mon'::interval) - '1 day'::interval))::date AS "EndOfMonth",
+    (((((date_trunc('month'::text, gs) + '1 mon'::interval) - '1 day'::interval))::date <= (((date_trunc('month'::text, (CURRENT_DATE)::timestamp with time zone) + '1 mon'::interval) - '1 day'::interval))::date) AND ((((date_trunc('month'::text, gs) + '1 mon'::interval) - '1 day'::interval))::date > '2020-04-30'::date)) AS "Is_Range_for_Invoicing"
+   FROM generate_series(('2020-01-01'::date)::timestamp with time zone, ((((date_trunc('month'::text, (CURRENT_DATE)::timestamp with time zone) + '4 mons'::interval) - '1 day'::interval))::date)::timestamp with time zone, '1 day'::interval) gs(gs);
+
+Columns:
+  - Date (date)
+  - PublicHoliday (boolean)
+  - Weekday (integer)
+  - WeekEnd (boolean)
+  - StartOfMonth (date)
+  - EndOfMonth (date)
+  - Is_Range_for_Invoicing (boolean)
+
+Row Count: 2,373
+
+================================================================================
+
+View: key02_job_task_staff_id
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT DISTINCT combined."Job_Task_Staff_ID",
+    combined."Job_ID",
+    combined."Staff_Name",
+    jt."Task_Name",
+    j."Client_Name",
+    j."Job_Name",
+        CASE
+            WHEN ((jt."Task_Name" ~~* '%Holiday%'::text) OR (jt."Task_Name" ~~* '%Other leave%'::text) OR (jt."Task_Name" ~~* '%Sick leave%'::text)) THEN 'Leave Tasks'::text
+            WHEN ((jt."Task_Name" ~~* '%Admin - Non-billable%'::text) OR (j."Client_Name" = 'Dinniss Admin'::text)) THEN 'Admin Tasks'::text
+            ELSE 'Billable Tasks'::text
+        END AS "Task_Category",
+    COALESCE(( SELECT kt."Name"
+           FROM key05_task_type kt
+          WHERE (jt."Task_Name" ~~* (('%'::text || kt."Name") || '%'::text))
+         LIMIT 1), jt."Task_Name") AS "Task_Type1"
+   FROM ((( SELECT "1_Job_Task_Details_Table"."Job_Task_Staff_ID",
+            "1_Job_Task_Details_Table"."Job_ID",
+            "1_Job_Task_Details_Table"."Task_UUID" AS "Task_ID",
+            "1_Job_Task_Details_Table"."Staff_UUID",
+            "1_Job_Task_Details_Table"."Staff_Name"
+           FROM "1_Job_Task_Details_Table"
+        UNION ALL
+         SELECT keys_time."Job_Task_Staff_ID",
+            keys_time."Job_ID",
+            keys_time."Task_ID",
+            keys_time."Staff_UUID",
+            keys_time."Staff_Name"
+           FROM keys_time) combined
+     LEFT JOIN "1_Job_Task_Details_Table" jt ON ((jt."Job_Task_Staff_ID" = combined."Job_Task_Staff_ID")))
+     LEFT JOIN key06_job_table j ON (((j."Job_ID")::text = (combined."Job_ID")::text)));
+
+Columns:
+  - Job_Task_Staff_ID (text)
+  - Job_ID (character varying)
+  - Staff_Name (text)
+  - Task_Name (text)
+  - Client_Name (text)
+  - Job_Name (text)
+  - Task_Category (text)
+  - Task_Type1 (text)
+
+Row Count: 27,061
+
+================================================================================
+
+View: key03_staff_table
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT DISTINCT "StaffID" AS "Staff_UUID",
+    "Name" AS "Staff_Name"
+   FROM jobtaskassignee
+  WHERE (("Name" <> ALL (ARRAY['Anna Williams'::text, 'Caroline Dinniss'::text, 'Conor Cameron'::text, 'Conor O''Brien'::text, 'Dinniss'::text, 'Sahar Sedaghat'::text, 'The OLD - Dani Millar'::text, 'Vicky Jones'::text])) AND ("Name" IS NOT NULL));
+
+Columns:
+  - Staff_UUID (uuid)
+  - Staff_Name (text)
+
+Row Count: 34
+
+================================================================================
+
+View: key04_task_name
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT DISTINCT "Name" AS "Task_Name"
+   FROM jobtask;
+
+Columns:
+  - Task_Name (text)
+
+Row Count: 1,359
+
+================================================================================
+
+View: key05_task_type
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "UUID" AS "TaskType_UUID",
+    "Name"
+   FROM task;
+
+Columns:
+  - TaskType_UUID (uuid)
+  - Name (text)
+
+Row Count: 34
+
+================================================================================
+
+View: key06_job_table
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT jd."UUID" AS "Job_UUID",
+    jd."ID" AS "Job_ID",
+    jd."Name" AS "Job_Name",
+    jd."Description" AS "Job_Description",
+    jd."ClientUUID" AS "Client_UUID",
+    cd."Name" AS "Client_Name",
+    ja."UUID" AS "Staff_UUID",
+    ja."Name" AS "Staff_Name",
+    jd."State" AS "Job_State",
+    jd."StartDate",
+    jd."DueDate",
+    jd."CompletedDate"
+   FROM ((jobdetails jd
+     LEFT JOIN clientdetails cd ON ((cd."UUID" = jd."ClientUUID")))
+     LEFT JOIN jobassignee ja ON (((ja."JobID")::text = (jd."RemoteID")::text)));
+
+Columns:
+  - Job_UUID (uuid)
+  - Job_ID (character varying)
+  - Job_Name (text)
+  - Job_Description (text)
+  - Client_UUID (uuid)
+  - Client_Name (text)
+  - Staff_UUID (uuid)
+  - Staff_Name (text)
+  - Job_State (text)
+  - StartDate (timestamp without time zone)
+  - DueDate (timestamp without time zone)
+  - CompletedDate (timestamp without time zone)
+
+Row Count: 21,853
+
+================================================================================
+
+View: key07_is_billable
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT DISTINCT "Billable_Selector"
+   FROM "2_Staff_Task_Allocation_byDay";
+
+Columns:
+  - Billable_Selector (text)
+
+Row Count: 2
+
+================================================================================
+
+View: key08_incentive_table_display_measure
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT metric AS "Metric",
+    ('Selected Metric: '::text || SUBSTRING(metric FROM 4)) AS "Name",
+        CASE metric
+            WHEN '1. Allocated Billable Hours'::text THEN 'Target Metric: Hours to be Allocated'::text
+            WHEN '2. Recorded Billable Hours'::text THEN 'Target Metric: Hours to be Recorded'::text
+            WHEN '3. Invoiced Billable Hours'::text THEN 'Target Metric: Hours to be Invoiced'::text
+            WHEN '4. % Allocated to Billable Hours'::text THEN 'Target Metric: Hours to be Allocated'::text
+            WHEN '5. % Recorded to Billable Hours'::text THEN 'Target Metric: Hours to be Recorded'::text
+            ELSE 'Target Metric: Hours to be Invoiced'::text
+        END AS "Target_Metric"
+   FROM unnest(ARRAY['1. Allocated Billable Hours'::text, '2. Recorded Billable Hours'::text, '3. Invoiced Billable Hours'::text, '4. % Allocated to Billable Hours'::text, '5. % Recorded to Billable Hours'::text, '6. % Invoiced to Billable Hours'::text]) metric(metric);
+
+Columns:
+  - Metric (text)
+  - Name (text)
+  - Target_Metric (text)
+
+Row Count: 6
+
+================================================================================
+
+View: keys_time
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "Job_Task_Staff_ID",
+    "Job_ID",
+    "Task_ID",
+    "Staff_Name",
+    "Staff_ID" AS "Staff_UUID"
+   FROM "4_Timesheet_Table";
+
+Columns:
+  - Job_Task_Staff_ID (text)
+  - Job_ID (character varying)
+  - Task_ID (uuid)
+  - Staff_Name (text)
+  - Staff_UUID (uuid)
+
+Row Count: 58,292
+
+================================================================================
+
+View: lead
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "Description",
+    "State",
+    "EstimatedValue",
+    "Date",
+    "DateWonLost",
+    "Category",
+    "Dropbox",
+    "ClientUUID",
+    "ContactUUID",
+    "OwnerUUID"
+   FROM synchub_workflowmax2_13307_1_lead
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - Description (text)
+  - State (text)
+  - EstimatedValue (numeric)
+  - Date (timestamp without time zone)
+  - DateWonLost (text)
+  - Category (text)
+  - Dropbox (text)
+  - ClientUUID (uuid)
+  - ContactUUID (uuid)
+  - OwnerUUID (uuid)
+
+Row Count: 67
+
+================================================================================
+
+View: leadactivity
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "LeadUUID",
+    "Iterator",
+    "Date",
+    "Subject",
+    "Completed",
+    "LeadActivityOwnerUUID",
+    "LeadRemoteID"
+   FROM synchub_workflowmax2_13307_1_leadactivity
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - LeadUUID (uuid)
+  - Iterator (integer)
+  - Date (timestamp without time zone)
+  - Subject (text)
+  - Completed (boolean)
+  - LeadActivityOwnerUUID (uuid)
+  - LeadRemoteID (character varying)
+
+Row Count: 49
+
+================================================================================
+
+View: leadhistory
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "LeadUUID",
+    "Iterator",
+    "Detail",
+    "Date",
+    "Staff",
+    "Type",
+    "LeadRemoteID"
+   FROM synchub_workflowmax2_13307_1_leadhistory
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - LeadUUID (uuid)
+  - Iterator (integer)
+  - Detail (text)
+  - Date (timestamp without time zone)
+  - Staff (text)
+  - Type (text)
+  - LeadRemoteID (character varying)
+
+Row Count: 400
+
+================================================================================
+
+View: milestone
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "JobDetailsRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Description",
+    "JobID",
+    "Date",
+    "Completed",
+    "Folder"
+   FROM synchub_workflowmax2_13307_1_milestone
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - JobDetailsRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Description (text)
+  - JobID (character varying)
+  - Date (timestamp without time zone)
+  - Completed (boolean)
+  - Folder (text)
+
+Row Count: 423
+
+================================================================================
+
+View: note
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "JobDetailsRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Date",
+    "JobID",
+    "Title",
+    "Folder",
+    "Text",
+    "CreatedBy"
+   FROM synchub_workflowmax2_13307_1_note
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - JobDetailsRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Date (timestamp without time zone)
+  - JobID (character varying)
+  - Title (text)
+  - Folder (text)
+  - Text (text)
+  - CreatedBy (text)
+
+Row Count: 1
+
+================================================================================
+
+View: public_holidays
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT date,
+    day,
+    holiday,
+    column1
+   FROM excel_public_holidays;
+
+Columns:
+  - date (timestamp without time zone)
+  - day (text)
+  - holiday (text)
+  - column1 (text)
+
+Row Count: 69
+
+================================================================================
+
+View: purchaseorderdetails
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "TimeZone",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "ID",
+    "Description",
+    "State",
+    "Date",
+    "DeliveryAddress",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax",
+    "JobID",
+    "SupplierUUID"
+   FROM synchub_workflowmax2_13307_1_purchaseorderdetails
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - TimeZone (text)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - ID (character varying)
+  - Description (text)
+  - State (text)
+  - Date (timestamp without time zone)
+  - DeliveryAddress (text)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+  - JobID (character varying)
+  - SupplierUUID (uuid)
+
+Row Count: 1,750
+
+================================================================================
+
+View: purchaseorderdetailscost
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "PurchaseOrderDetailsRemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "Description",
+    "PurchaseOrderID",
+    "LineNumber",
+    "Note",
+    "Code",
+    "Quantity",
+    "UnitCost",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax"
+   FROM synchub_workflowmax2_13307_1_purchaseorderdetailscost
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - PurchaseOrderDetailsRemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - Description (text)
+  - PurchaseOrderID (character varying)
+  - LineNumber (integer)
+  - Note (text)
+  - Code (text)
+  - Quantity (numeric)
+  - UnitCost (numeric)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+
+Row Count: 2,115
+
+================================================================================
+
+View: quote
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "TimeZone",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "ID",
+    "Name",
+    "Description",
+    "JobUUID",
+    "JobID",
+    "LeadUUID",
+    "Type",
+    "State",
+    "Budget",
+    "OptionExplanation",
+    "Date",
+    "ValidDate",
+    "EstimatedCost",
+    "EstimatedCostTax",
+    "EstimatedCostIncludingTax",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax",
+    "ClientUUID",
+    "ContactUUID"
+   FROM synchub_workflowmax2_13307_1_quote
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - TimeZone (text)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - ID (character varying)
+  - Name (text)
+  - Description (text)
+  - JobUUID (uuid)
+  - JobID (character varying)
+  - LeadUUID (uuid)
+  - Type (text)
+  - State (text)
+  - Budget (numeric)
+  - OptionExplanation (text)
+  - Date (timestamp without time zone)
+  - ValidDate (timestamp without time zone)
+  - EstimatedCost (numeric)
+  - EstimatedCostTax (numeric)
+  - EstimatedCostIncludingTax (numeric)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+  - ClientUUID (uuid)
+  - ContactUUID (uuid)
+
+Row Count: 128
+
+================================================================================
+
+View: quotecost
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "Description",
+    "QuoteID",
+    "CostNumber",
+    "Note",
+    "Code",
+    "Billable",
+    "Quantity",
+    "UnitCost",
+    "UnitPrice",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax",
+    "QuoteRemoteID"
+   FROM synchub_workflowmax2_13307_1_quotecost
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - Description (text)
+  - QuoteID (character varying)
+  - CostNumber (integer)
+  - Note (text)
+  - Code (text)
+  - Billable (text)
+  - Quantity (numeric)
+  - UnitCost (numeric)
+  - UnitPrice (numeric)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+  - QuoteRemoteID (character varying)
+
+Row Count: 149
+
+================================================================================
+
+View: quoteoption
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "Description",
+    "QuoteID",
+    "OptionNumber",
+    "Note",
+    "Code",
+    "Quantity",
+    "UnitCost",
+    "UnitPrice",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax",
+    "QuoteRemoteID"
+   FROM synchub_workflowmax2_13307_1_quoteoption
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - Description (text)
+  - QuoteID (character varying)
+  - OptionNumber (integer)
+  - Note (text)
+  - Code (text)
+  - Quantity (numeric)
+  - UnitCost (numeric)
+  - UnitPrice (numeric)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+  - QuoteRemoteID (character varying)
+
+Row Count: 20
+
+================================================================================
+
+View: quotetask
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "Name",
+    "Description",
+    "QuoteID",
+    "TaskNumber",
+    "EstimatedMinutes",
+    "BillableRate",
+    "Billable",
+    "Amount",
+    "AmountTax",
+    "AmountIncludingTax",
+    "QuoteRemoteID"
+   FROM synchub_workflowmax2_13307_1_quotetask
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - Name (text)
+  - Description (text)
+  - QuoteID (character varying)
+  - TaskNumber (integer)
+  - EstimatedMinutes (numeric)
+  - BillableRate (numeric)
+  - Billable (text)
+  - Amount (numeric)
+  - AmountTax (numeric)
+  - AmountIncludingTax (numeric)
+  - QuoteRemoteID (character varying)
+
+Row Count: 376
+
+================================================================================
+
+View: recorded_invoiced_hours
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT timesheet_uuid,
+    staff,
+    date,
+    client,
+    task,
+    recorded_minutes,
+    invoiced_mins
+   FROM excel_recorded_invoiced_hours;
+
+Columns:
+  - timesheet_uuid (text)
+  - staff (text)
+  - date (timestamp without time zone)
+  - client (text)
+  - task (text)
+  - recorded_minutes (bigint)
+  - invoiced_mins (double precision)
+
+Row Count: 25,355
+
+================================================================================
+
+View: staff
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "Email",
+    "Phone",
+    "Mobile",
+    "Address",
+    "PayrollCode"
+   FROM synchub_workflowmax2_13307_1_staff
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - Email (text)
+  - Phone (text)
+  - Mobile (text)
+  - Address (text)
+  - PayrollCode (text)
+
+Row Count: 12
+
+================================================================================
+
+View: staff_adjustment_sheet
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT staffname,
+    staff_id,
+    month,
+    adjustmentfactor,
+    updated_on
+   FROM excel_staff_adjustment_sheet;
+
+Columns:
+  - staffname (text)
+  - staff_id (text)
+  - month (timestamp without time zone)
+  - adjustmentfactor (double precision)
+  - updated_on (timestamp without time zone)
+
+Row Count: 292
+
+================================================================================
+
+View: staff_target_sheet
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT staff_name,
+    staff_id,
+    startofmonth,
+    targetutilisation,
+    targetdinnissinternalefficiency,
+    completedtaskefficiency,
+    coachingtarget,
+    targetpotentialprofitability,
+    targetactualprofitability,
+    invoiced_time
+   FROM excel_staff_target_sheet;
+
+Columns:
+  - staff_name (text)
+  - staff_id (text)
+  - startofmonth (timestamp without time zone)
+  - targetutilisation (double precision)
+  - targetdinnissinternalefficiency (bigint)
+  - completedtaskefficiency (double precision)
+  - coachingtarget (double precision)
+  - targetpotentialprofitability (double precision)
+  - targetactualprofitability (double precision)
+  - invoiced_time (double precision)
+
+Row Count: 154
+
+================================================================================
+
+View: supplier
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "Address",
+    "City",
+    "Region",
+    "PostCode",
+    "Country",
+    "PostalAddress",
+    "PostalCity",
+    "PostalRegion",
+    "PostalPostCode",
+    "PostalCountry",
+    "Phone",
+    "Fax",
+    "Website"
+   FROM synchub_workflowmax2_13307_1_supplier
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - Address (text)
+  - City (text)
+  - Region (text)
+  - PostCode (text)
+  - Country (text)
+  - PostalAddress (text)
+  - PostalCity (text)
+  - PostalRegion (text)
+  - PostalPostCode (text)
+  - PostalCountry (text)
+  - Phone (text)
+  - Fax (text)
+  - Website (text)
+
+Row Count: 500
+
+================================================================================
+
+View: task
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name",
+    "Description"
+   FROM synchub_workflowmax2_13307_1_task
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+  - Description (text)
+
+Row Count: 34
+
+================================================================================
+
+View: template
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "Name"
+   FROM synchub_workflowmax2_13307_1_template
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - Name (text)
+
+Row Count: 54
+
+================================================================================
+
+View: time
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT "RemoteID",
+    "WhenUpsertedIntoDataStore",
+    "MirrorRemoteID",
+    "IsDeleted",
+    "WhenCreated",
+    "WhenModified",
+    "UUID",
+    "ID",
+    "JobID",
+    "StaffMemberUUID",
+    "TaskUUID",
+    "Date",
+    "Minutes",
+    "Note",
+    "Billable",
+    "InvoiceUUID",
+    "InvoiceTaskUUID",
+    "Start",
+    "End"
+   FROM synchub_workflowmax2_13307_1_time
+  WHERE (_scd_is_current = true);
+
+Columns:
+  - RemoteID (character varying)
+  - WhenUpsertedIntoDataStore (timestamp without time zone)
+  - MirrorRemoteID (integer)
+  - IsDeleted (boolean)
+  - WhenCreated (timestamp without time zone)
+  - WhenModified (timestamp without time zone)
+  - UUID (uuid)
+  - ID (text)
+  - JobID (character varying)
+  - StaffMemberUUID (uuid)
+  - TaskUUID (uuid)
+  - Date (timestamp without time zone)
+  - Minutes (integer)
+  - Note (text)
+  - Billable (boolean)
+  - InvoiceUUID (uuid)
+  - InvoiceTaskUUID (uuid)
+  - Start (text)
+  - End (text)
+
+Row Count: 58,292
+
+================================================================================
+
+View: workable_days
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT staffname,
+    staffid,
+    day_of_week,
+    day_name,
+    working_day,
+    adjustment_factor,
+    updated_on
+   FROM excel_workable_days;
+
+Columns:
+  - staffname (text)
+  - staffid (text)
+  - day_of_week (bigint)
+  - day_name (text)
+  - working_day (boolean)
+  - adjustment_factor (double precision)
+  - updated_on (timestamp without time zone)
+
+Row Count: 56
+
+================================================================================
+
+
+================================================================================
+3. INDEXES
+================================================================================
+
+
+Table: synchub_workflowmax2_13307_1_category
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_category_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_category_current ON public.synchub_workflowmax2_13307_1_category USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_category_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_category_valid_from ON public.synchub_workflowmax2_13307_1_category USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_category_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_category_pkey ON public.synchub_workflowmax2_13307_1_category USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_client
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_client_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_client_current ON public.synchub_workflowmax2_13307_1_client USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_client_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_client_valid_from ON public.synchub_workflowmax2_13307_1_client USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_client_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_client_pkey ON public.synchub_workflowmax2_13307_1_client USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_clientcontact
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_clientcontact_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_clientcontact_current ON public.synchub_workflowmax2_13307_1_clientcontact USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_clientcontact_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_clientcontact_valid_from ON public.synchub_workflowmax2_13307_1_clientcontact USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_clientcontact_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_clientcontact_pkey ON public.synchub_workflowmax2_13307_1_clientcontact USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_clientdetails
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_clientdetails_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_clientdetails_current ON public.synchub_workflowmax2_13307_1_clientdetails USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_clientdetails_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_clientdetails_valid_from ON public.synchub_workflowmax2_13307_1_clientdetails USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_clientdetails_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_clientdetails_pkey ON public.synchub_workflowmax2_13307_1_clientdetails USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_clientgroupdetails
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_clientgroupdetails_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_clientgroupdetails_current ON public.synchub_workflowmax2_13307_1_clientgroupdetails USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_clientgroupdetails_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_clientgroupdetails_valid_from ON public.synchub_workflowmax2_13307_1_clientgroupdetails USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_clientgroupdetails_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_clientgroupdetails_pkey ON public.synchub_workflowmax2_13307_1_clientgroupdetails USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_comment
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_comment_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_comment_current ON public.synchub_workflowmax2_13307_1_comment USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_comment_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_comment_valid_from ON public.synchub_workflowmax2_13307_1_comment USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_comment_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_comment_pkey ON public.synchub_workflowmax2_13307_1_comment USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_contact
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_contact_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_contact_current ON public.synchub_workflowmax2_13307_1_contact USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_contact_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_contact_valid_from ON public.synchub_workflowmax2_13307_1_contact USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_contact_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_contact_pkey ON public.synchub_workflowmax2_13307_1_contact USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_cost
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_cost_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_cost_current ON public.synchub_workflowmax2_13307_1_cost USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_cost_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_cost_valid_from ON public.synchub_workflowmax2_13307_1_cost USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_cost_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_cost_pkey ON public.synchub_workflowmax2_13307_1_cost USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_customfielddefinition
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_customfielddefinition_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_customfielddefinition_current ON public.synchub_workflowmax2_13307_1_customfielddefinition USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_customfielddefinition_valid_fr
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_customfielddefinition_valid_fr ON public.synchub_workflowmax2_13307_1_customfielddefinition USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_customfielddefinition_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_customfielddefinition_pkey ON public.synchub_workflowmax2_13307_1_customfielddefinition USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_customfielddefinitionoption
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_customfielddefinitionoption_cu
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_customfielddefinitionoption_cu ON public.synchub_workflowmax2_13307_1_customfielddefinitionoption USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_customfielddefinitionoption_va
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_customfielddefinitionoption_va ON public.synchub_workflowmax2_13307_1_customfielddefinitionoption USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_customfielddefinitionoption_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_customfielddefinitionoption_pkey ON public.synchub_workflowmax2_13307_1_customfielddefinitionoption USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_invoice
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_invoice_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_invoice_current ON public.synchub_workflowmax2_13307_1_invoice USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_invoice_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_invoice_valid_from ON public.synchub_workflowmax2_13307_1_invoice USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_invoice_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_invoice_pkey ON public.synchub_workflowmax2_13307_1_invoice USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_invoicecost
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_invoicecost_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_invoicecost_current ON public.synchub_workflowmax2_13307_1_invoicecost USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_invoicecost_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_invoicecost_valid_from ON public.synchub_workflowmax2_13307_1_invoicecost USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_invoicecost_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_invoicecost_pkey ON public.synchub_workflowmax2_13307_1_invoicecost USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_invoicetask
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_invoicetask_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_invoicetask_current ON public.synchub_workflowmax2_13307_1_invoicetask USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_invoicetask_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_invoicetask_valid_from ON public.synchub_workflowmax2_13307_1_invoicetask USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_invoicetask_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_invoicetask_pkey ON public.synchub_workflowmax2_13307_1_invoicetask USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_jobassignee
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_jobassignee_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_jobassignee_current ON public.synchub_workflowmax2_13307_1_jobassignee USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_jobassignee_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_jobassignee_valid_from ON public.synchub_workflowmax2_13307_1_jobassignee USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_jobassignee_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_jobassignee_pkey ON public.synchub_workflowmax2_13307_1_jobassignee USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_jobdetails
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_jobdetails_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_jobdetails_current ON public.synchub_workflowmax2_13307_1_jobdetails USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_jobdetails_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_jobdetails_valid_from ON public.synchub_workflowmax2_13307_1_jobdetails USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_jobdetails_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_jobdetails_pkey ON public.synchub_workflowmax2_13307_1_jobdetails USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_jobtask
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_jobtask_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_jobtask_current ON public.synchub_workflowmax2_13307_1_jobtask USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_jobtask_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_jobtask_valid_from ON public.synchub_workflowmax2_13307_1_jobtask USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_jobtask_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_jobtask_pkey ON public.synchub_workflowmax2_13307_1_jobtask USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_jobtaskassignee
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_jobtaskassignee_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_jobtaskassignee_current ON public.synchub_workflowmax2_13307_1_jobtaskassignee USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_jobtaskassignee_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_jobtaskassignee_valid_from ON public.synchub_workflowmax2_13307_1_jobtaskassignee USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_jobtaskassignee_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_jobtaskassignee_pkey ON public.synchub_workflowmax2_13307_1_jobtaskassignee USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_lead
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_lead_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_lead_current ON public.synchub_workflowmax2_13307_1_lead USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_lead_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_lead_valid_from ON public.synchub_workflowmax2_13307_1_lead USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_lead_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_lead_pkey ON public.synchub_workflowmax2_13307_1_lead USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_leadactivity
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_leadactivity_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_leadactivity_current ON public.synchub_workflowmax2_13307_1_leadactivity USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_leadactivity_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_leadactivity_valid_from ON public.synchub_workflowmax2_13307_1_leadactivity USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_leadactivity_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_leadactivity_pkey ON public.synchub_workflowmax2_13307_1_leadactivity USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_leadhistory
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_leadhistory_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_leadhistory_current ON public.synchub_workflowmax2_13307_1_leadhistory USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_leadhistory_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_leadhistory_valid_from ON public.synchub_workflowmax2_13307_1_leadhistory USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_leadhistory_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_leadhistory_pkey ON public.synchub_workflowmax2_13307_1_leadhistory USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_milestone
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_milestone_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_milestone_current ON public.synchub_workflowmax2_13307_1_milestone USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_milestone_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_milestone_valid_from ON public.synchub_workflowmax2_13307_1_milestone USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_milestone_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_milestone_pkey ON public.synchub_workflowmax2_13307_1_milestone USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_note
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_note_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_note_current ON public.synchub_workflowmax2_13307_1_note USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_note_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_note_valid_from ON public.synchub_workflowmax2_13307_1_note USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_note_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_note_pkey ON public.synchub_workflowmax2_13307_1_note USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_purchaseorderdetails
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_purchaseorderdetails_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_purchaseorderdetails_current ON public.synchub_workflowmax2_13307_1_purchaseorderdetails USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_purchaseorderdetails_valid_fro
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_purchaseorderdetails_valid_fro ON public.synchub_workflowmax2_13307_1_purchaseorderdetails USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_purchaseorderdetails_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_purchaseorderdetails_pkey ON public.synchub_workflowmax2_13307_1_purchaseorderdetails USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_purchaseorderdetailscost
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_purchaseorderdetailscost_curre
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_purchaseorderdetailscost_curre ON public.synchub_workflowmax2_13307_1_purchaseorderdetailscost USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_purchaseorderdetailscost_valid
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_purchaseorderdetailscost_valid ON public.synchub_workflowmax2_13307_1_purchaseorderdetailscost USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_purchaseorderdetailscost_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_purchaseorderdetailscost_pkey ON public.synchub_workflowmax2_13307_1_purchaseorderdetailscost USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_quote
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_quote_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_quote_current ON public.synchub_workflowmax2_13307_1_quote USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_quote_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_quote_valid_from ON public.synchub_workflowmax2_13307_1_quote USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_quote_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_quote_pkey ON public.synchub_workflowmax2_13307_1_quote USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_quotecost
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_quotecost_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_quotecost_current ON public.synchub_workflowmax2_13307_1_quotecost USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_quotecost_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_quotecost_valid_from ON public.synchub_workflowmax2_13307_1_quotecost USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_quotecost_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_quotecost_pkey ON public.synchub_workflowmax2_13307_1_quotecost USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_quoteoption
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_quoteoption_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_quoteoption_current ON public.synchub_workflowmax2_13307_1_quoteoption USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_quoteoption_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_quoteoption_valid_from ON public.synchub_workflowmax2_13307_1_quoteoption USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_quoteoption_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_quoteoption_pkey ON public.synchub_workflowmax2_13307_1_quoteoption USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_quotetask
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_quotetask_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_quotetask_current ON public.synchub_workflowmax2_13307_1_quotetask USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_quotetask_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_quotetask_valid_from ON public.synchub_workflowmax2_13307_1_quotetask USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_quotetask_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_quotetask_pkey ON public.synchub_workflowmax2_13307_1_quotetask USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_staff
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_staff_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_staff_current ON public.synchub_workflowmax2_13307_1_staff USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_staff_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_staff_valid_from ON public.synchub_workflowmax2_13307_1_staff USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_staff_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_staff_pkey ON public.synchub_workflowmax2_13307_1_staff USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_supplier
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_supplier_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_supplier_current ON public.synchub_workflowmax2_13307_1_supplier USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_supplier_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_supplier_valid_from ON public.synchub_workflowmax2_13307_1_supplier USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_supplier_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_supplier_pkey ON public.synchub_workflowmax2_13307_1_supplier USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_task
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_task_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_task_current ON public.synchub_workflowmax2_13307_1_task USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_task_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_task_valid_from ON public.synchub_workflowmax2_13307_1_task USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_task_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_task_pkey ON public.synchub_workflowmax2_13307_1_task USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_template
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_template_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_template_current ON public.synchub_workflowmax2_13307_1_template USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_template_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_template_valid_from ON public.synchub_workflowmax2_13307_1_template USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_template_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_template_pkey ON public.synchub_workflowmax2_13307_1_template USING btree (_scd_id)
+
+
+Table: synchub_workflowmax2_13307_1_time
+--------------------------------------------------------------------------------
+  idx_synchub_workflowmax2_13307_1_time_current
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_time_current ON public.synchub_workflowmax2_13307_1_time USING btree (_scd_is_current) WHERE (_scd_is_current = true)
+
+  idx_synchub_workflowmax2_13307_1_time_valid_from
+    CREATE INDEX idx_synchub_workflowmax2_13307_1_time_valid_from ON public.synchub_workflowmax2_13307_1_time USING btree (_scd_valid_from)
+
+  synchub_workflowmax2_13307_1_time_pkey
+    CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_time_pkey ON public.synchub_workflowmax2_13307_1_time USING btree (_scd_id)
+
+
+
+================================================================================
+4. DATABASE STATISTICS
+================================================================================
+
+Table Sizes (Top 20):
+Table Name                               Size            Rows           
+--------------------------------------------------------------------------------
+synchub_workflowmax2_13307_1_time        18 MB                   58,292
+synchub_workflowmax2_13307_1_jobtaskassignee 9552 kB                 29,499
+synchub_workflowmax2_13307_1_jobtask     9000 kB                 33,571
+synchub_workflowmax2_13307_1_jobassignee 5440 kB                 21,271
+synchub_workflowmax2_13307_1_jobdetails  5008 kB                  7,934
+excel_recorded_invoiced_hours            3784 kB                 25,355
+synchub_workflowmax2_13307_1_invoicetask 2672 kB                 10,029
+synchub_workflowmax2_13307_1_invoicecost 1056 kB                  3,497
+synchub_workflowmax2_13307_1_invoice     976 kB                   3,016
+synchub_workflowmax2_13307_1_purchaseorderdetailscost 656 kB                   2,115
+synchub_workflowmax2_13307_1_purchaseorderdetails 536 kB                   1,750
+synchub_workflowmax2_13307_1_leadhistory 496 kB                     400
+synchub_workflowmax2_13307_1_clientdetails 264 kB                     512
+synchub_workflowmax2_13307_1_contact     264 kB                     612
+synchub_workflowmax2_13307_1_clientcontact 248 kB                     613
+synchub_workflowmax2_13307_1_supplier    200 kB                     500
+synchub_workflowmax2_13307_1_milestone   192 kB                     423
+synchub_workflowmax2_13307_1_quote       176 kB                     128
+synchub_workflowmax2_13307_1_quotetask   160 kB                     376
+synchub_workflowmax2_13307_1_quotecost   120 kB                     149
+
+
+SUMMARY
+--------------------------------------------------------------------------------
+Total Tables: 40
+Total Views: 50
+Database Size: 69 MB
