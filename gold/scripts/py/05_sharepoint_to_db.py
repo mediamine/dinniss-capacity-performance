@@ -300,6 +300,26 @@ class PostgresDestination:
                 logger.error(f"Error inserting data into {table_name}: {e}")
                 raise
 
+    def create_view(self, table_name: str, df: pd.DataFrame):
+        """Create a view over the table using the last segment of the table name"""
+        view_name = table_name.removeprefix("excel_")
+        columns = list(df.columns)
+
+        with self.conn.cursor() as cursor:
+            try:
+                create_view_sql = sql.SQL(
+                    "CREATE OR REPLACE VIEW {} AS SELECT {} FROM {}"
+                ).format(
+                    sql.Identifier(view_name),
+                    sql.SQL(", ").join([sql.Identifier(col) for col in columns]),
+                    sql.Identifier(table_name),
+                )
+                cursor.execute(create_view_sql)
+                logger.info(f"Created view: {view_name}")
+            except psycopg2.Error as e:
+                logger.error(f"Error creating view {view_name}: {e}")
+                raise
+
     def sync_table(self, table_name: str, df: pd.DataFrame):
         """Drop, recreate, and populate a table with DataFrame data"""
         try:
@@ -309,6 +329,7 @@ class PostgresDestination:
             self.drop_table(table_name)
             self.create_table_from_dataframe(table_name, df)
             self.insert_dataframe(table_name, df)
+            self.create_view(table_name, df)
 
             self.conn.commit()
             logger.info(f"Successfully synced table: {table_name} ({len(df)} rows)")

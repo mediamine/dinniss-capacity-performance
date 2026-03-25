@@ -115,9 +115,9 @@ def main():
             drop_objects(conn, views, "view")
 
         # Then drop tables
-        # tables = get_tables(conn)
-        # if tables:
-        #     drop_objects(conn, tables, "table")
+        tables = get_tables(conn)
+        if tables:
+            drop_objects(conn, tables, "table")
 
         logger.info("Database cleanup completed successfully")
 
