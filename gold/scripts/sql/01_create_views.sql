@@ -945,10 +945,138 @@ SELECT
     t."InvoiceUUID" AS "Invoice_ID",
     t."InvoiceTaskUUID" AS "Invoice_Task_ID",
     t."Date",
-    t."Minutes" AS "Recorded_Minutes"
+    t."Minutes" AS "Recorded_Minutes",
+    -- Task_Name: LOOKUPVALUE from 1_Job_Task_Details_Table by Job_Task_Staff_ID, fallback to excel_recorded_invoiced_hours[Task] by Timesheet_UUID
+    COALESCE(jt_lkp."Task_Name", e_lkp.task)                         AS "Task_Name",
+    -- Client_Name: LOOKUPVALUE from 1_Job_Task_Details_Table by Job_Task_Staff_ID, fallback to excel_recorded_invoiced_hours[Client] by Timesheet_UUID
+    COALESCE(jt_lkp."Client_Name", e_lkp.client)                     AS "Client_Name",
+    -- Task_Type: LOOKUPVALUE from 1_Job_Task_Details_Table by Job_Task_Staff_ID, fallback to excel_recorded_invoiced_hours[Task] by Timesheet_UUID
+    COALESCE(jt_lkp."Task_Type", e_lkp.task)                         AS "Task_Type",
+    -- Task_Completed: LOOKUPVALUE from 1_Job_Task_Details_Table by Job_Task_Staff_ID
+    jt_lkp."Task_Completed"                                           AS "Task_Completed",
+    -- Is_Client = NOT (Client_Name="Dinniss Admin" OR Task_Type="Admin - Non-billable")
+    ic.is_client                                                      AS "Is_Client",
+    -- Invoiced_Time: IF(AND(ISBLANK(Invoice_Task_ID), Is_Client), "Un-Invoiced", IF(ISBLANK(Invoice_Task_ID), "Dinniss Time", "Invoiced"))
+    CASE
+        WHEN t."InvoiceTaskUUID" IS NULL AND ic.is_client THEN 'Un-Invoiced'
+        WHEN t."InvoiceTaskUUID" IS NULL                  THEN 'Dinniss Time'
+        ELSE 'Invoiced'
+    END                                                               AS "Invoiced_Time",
+    -- Is_Billable = NOT (Is_Client=FALSE OR Task_Type="Coaching")
+    (ic.is_client AND COALESCE(jt_lkp."Task_Type", e_lkp.task) <> 'Coaching')
+                                                                      AS "Is_Billable",
+    -- Billable_Selector = IF(Is_Billable, "Billable", "Not Billable")
+    CASE
+        WHEN ic.is_client AND COALESCE(jt_lkp."Task_Type", e_lkp.task) <> 'Coaching'
+            THEN 'Billable'
+        ELSE 'Not Billable'
+    END                                                               AS "Billable_Selector",
+    -- Task_Category: Leave/Admin/Billable based on Task_Name and Client_Name
+    CASE
+        WHEN COALESCE(jt_lkp."Task_Name", e_lkp.task) ILIKE '%Holiday%'
+          OR COALESCE(jt_lkp."Task_Name", e_lkp.task) ILIKE '%Other leave%'
+          OR COALESCE(jt_lkp."Task_Name", e_lkp.task) ILIKE '%Sick leave%'
+            THEN 'Leave Tasks'
+        WHEN COALESCE(jt_lkp."Task_Name", e_lkp.task) ILIKE '%Admin - Non-billable%'
+          OR COALESCE(jt_lkp."Client_Name", e_lkp.client) = 'Dinniss Admin'
+            THEN 'Admin Tasks'
+        ELSE 'Billable Tasks'
+    END                                                               AS "Task_Category",
+    -- Invoice_Number: LOOKUPVALUE(invoicetask[InvoiceID], invoicetask[UUID], Invoice_Task_ID)
+    inv_lkp.invoice_number                                            AS "Invoice_Number",
+    -- Month_Time_Recorded = DATE(YEAR(Date), MONTH(Date), 1) = first day of recorded month
+    DATE_TRUNC('month', t."Date")::DATE                              AS "Month_Time_Recorded",
+    -- Month_Time_Invoiced: first day of month the invoice was raised
+    inv_lkp.invoiced_month                                           AS "Month_Time_Invoiced",
+    -- Invoiced_Minutes: LOOKUPVALUE(excel_recorded_invoiced_hours[Invoiced_Mins], ..., Timesheet_UUID)
+    e_lkp.invoiced_mins                                              AS "Invoiced_Minutes",
+    -- Month_Invoiced_On: DATEDIFF(Month_Time_Recorded, Month_Time_Invoiced, MONTH); -1→1, else diff+1; NULL if no invoice
+    mto.val                                                          AS "Month_Invoiced_On",
+    -- Recorded_Hours_invoiced: billing timing category (Billable Tasks only)
+    CASE WHEN ibt.is_billable_task THEN
+        CASE
+            WHEN t."InvoiceTaskUUID" IS NULL AND ic.is_client THEN '5_Un-Invoiced'
+            WHEN mto.val = 1                                  THEN '1_Same Month'
+            WHEN mto.val = 2                                  THEN '2_Following Month'
+            WHEN mto.val = 3                                  THEN '3_Third Month'
+            ELSE '4_Fourth Month +'
+        END
+    END                                                               AS "Recorded_Hours_invoiced",
+    -- Job_Name: RELATED(key02_job_task_staff_id[Job_Name])
+    k2_lkp."Job_Name"                                                AS "Job_Name"
 FROM
     TIME t
     LEFT JOIN "key03_staff_table" s ON s."Staff_UUID" = t."StaffMemberUUID"
+    LEFT JOIN LATERAL (
+        SELECT jt."Task_Name", jt."Client_Name", jt."Task_Type", jt."Task_Completed"
+        FROM "1_Job_Task_Details_Table" jt
+        WHERE jt."Job_Task_Staff_ID" = (t."JobID" || t."TaskUUID" || t."StaffMemberUUID")
+        LIMIT 1
+    ) jt_lkp ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT e.task, e.client, e.invoiced_mins
+        FROM excel_recorded_invoiced_hours e
+        WHERE e.timesheet_uuid = t."UUID"::text
+        LIMIT 1
+    ) e_lkp ON TRUE
+    CROSS JOIN LATERAL (
+        -- ic: pre-compute Is_Client to reuse across Invoiced_Time, Is_Billable, Billable_Selector
+        SELECT NOT (
+            COALESCE(jt_lkp."Client_Name", e_lkp.client) = 'Dinniss Admin'
+            OR COALESCE(jt_lkp."Task_Type", e_lkp.task) = 'Admin - Non-billable'
+        ) AS is_client
+    ) ic
+    CROSS JOIN LATERAL (
+        -- ibt: pre-compute is_billable_task for Recorded_Hours_invoiced
+        SELECT NOT (
+            COALESCE(jt_lkp."Task_Name", e_lkp.task) ILIKE '%Holiday%'
+            OR COALESCE(jt_lkp."Task_Name", e_lkp.task) ILIKE '%Other leave%'
+            OR COALESCE(jt_lkp."Task_Name", e_lkp.task) ILIKE '%Sick leave%'
+            OR COALESCE(jt_lkp."Task_Name", e_lkp.task) ILIKE '%Admin - Non-billable%'
+            OR COALESCE(jt_lkp."Client_Name", e_lkp.client) = 'Dinniss Admin'
+        ) AS is_billable_task
+    ) ibt
+    LEFT JOIN LATERAL (
+        -- inv_lkp: Invoice_Number (= InvoiceID) and Month_Time_Invoiced from invoicetask + invoice
+        SELECT it."InvoiceID"                            AS invoice_number,
+               DATE_TRUNC('month', inv."Date")::DATE     AS invoiced_month
+        FROM invoicetask it
+        LEFT JOIN invoice inv ON inv."ID" = it."InvoiceID"
+                              AND inv."IsDeleted" = FALSE
+        WHERE it."UUID" = t."InvoiceTaskUUID"
+          AND it."IsDeleted" = FALSE
+        LIMIT 1
+    ) inv_lkp ON TRUE
+    CROSS JOIN LATERAL (
+        -- mto: Month_Invoiced_On = IF(ISBLANK(Invoice_Number), BLANK(), IF(Logic=-1, 1, Logic+1))
+        --   Logic = DATEDIFF(Month_Time_Recorded, Month_Time_Invoiced, MONTH)
+        SELECT CASE
+            WHEN inv_lkp.invoice_number IS NULL THEN NULL
+            ELSE (
+                CASE
+                    WHEN (
+                        (EXTRACT(YEAR  FROM inv_lkp.invoiced_month)
+                         - EXTRACT(YEAR  FROM DATE_TRUNC('month', t."Date")::DATE)) * 12
+                        + EXTRACT(MONTH FROM inv_lkp.invoiced_month)
+                        - EXTRACT(MONTH FROM DATE_TRUNC('month', t."Date")::DATE)
+                    )::int = -1 THEN 1
+                    ELSE (
+                        (EXTRACT(YEAR  FROM inv_lkp.invoiced_month)
+                         - EXTRACT(YEAR  FROM DATE_TRUNC('month', t."Date")::DATE)) * 12
+                        + EXTRACT(MONTH FROM inv_lkp.invoiced_month)
+                        - EXTRACT(MONTH FROM DATE_TRUNC('month', t."Date")::DATE)
+                    )::int + 1
+                END
+            )
+        END AS val
+    ) mto
+    LEFT JOIN LATERAL (
+        -- k2_lkp: Job_Name from key06_job_table by Job_ID (avoids circular dep via key02→keys_time→4_Timesheet)
+        SELECT k."Job_Name"
+        FROM key06_job_table k
+        WHERE k."Job_ID" = t."JobID"
+        LIMIT 1
+    ) k2_lkp ON TRUE
 WHERE
     t."Date" >= '2020-01-01'
     AND s."Staff_Name" IS NOT NULL;
