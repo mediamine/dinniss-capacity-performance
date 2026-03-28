@@ -41,11 +41,58 @@
 --      excel_workable_days (staffname, day_of_week) — used in every
 --      IS_Staff_Workable_DayOfWeek EXISTS check across all views.
 --
+--   A. 4_Timesheet_Table converted to MATERIALIZED VIEW
+--      Eliminates re-execution of all joins on every downstream query.
+--
+--   B. 4_Timesheet_Table lookup LATERALs → regular LEFT JOINs
+--      jt_lkp, e_lkp, inv_lkp, k2_lkp converted from LATERAL+LIMIT 1 to
+--      regular LEFT JOINs (jt_lkp/e_lkp use DISTINCT ON subqueries to match
+--      LIMIT 1 behaviour). Allows hash/merge joins instead of nested loops.
+--
+--   C. 2_Staff_Task_Allocation_byDay converted to MATERIALIZED VIEW
+--      lv lateral (O(n⁴) inline jobtask × nested COUNT) replaced with a JOIN
+--      to leave_status_by_staff_date. wkd lateral replaced with regular LEFT JOIN.
+--      Indexed on (Staff_Name, Date) and (Job_Task_Staff_ID).
+--
+--   D. 3_Staff_Performance_Table converted to MATERIALIZED VIEW
+--      Eliminates re-computation of 14+ lateral scans per calendar×staff row.
+--
+--   E. 3_Staff_Performance_Table Is_Workable_Day NOT EXISTS replaced with
+--      leave_status_by_staff_date JOIN (lv_spt).
+--
+--   F. 3_Staff_Performance_Table scalar subqueries merged into regular LEFT JOINs:
+--      Two excel_workable_days subqueries → wd_lkp (working_day + adjustment_factor).
+--      excel_staff_adjustment_sheet subquery → adj_lkp.
+--
+--   G. 3_Staff_Performance_Table itgt and pitgt LATERAL+LIMIT 1 → regular LEFT JOINs.
+--
+--   H. 3_Staff_Performance_Table: 6 separate 2_Staff_Task_Allocation_byDay scans
+--      → 1 alloc_counts FILTER lateral (6× reduction).
+--      6 separate 4_Timesheet_Table scans → 1 ts_counts FILTER lateral (6× reduction).
+--
+--   I. key02_job_task_staff_id converted to MATERIALIZED VIEW
+--      Eliminates re-executing UNION ALL + DISTINCT + per-row ILIKE scalar subquery
+--      for Task_Type1 on every build of 2_Staff_Task_Allocation_byDay.
+--
+--   J. 2_Staff_Task_Allocation_byDay date-range WHERE filter
+--      Restricts the CROSS JOIN output to rows where c.Date falls within each task's
+--      StartDateAdjusted–DueDateAdjusted window. Reduces row count from
+--      N_dates × N_tasks → SUM(task_duration_in_workdays).
+--
+--   K. 3_Staff_Performance_Table alloc_agg and ts_agg pre-aggregated LEFT JOINs
+--      alloc_counts and ts_counts were CROSS JOIN LATERALs — each executed a separate
+--      aggregate scan per (staff, date) row (~44,000 each). Replaced with subqueries
+--      that GROUP BY (Staff_Name, Date) once, then hash-join to the outer loop:
+--      2 single-pass scans + 2 hash joins replaces ~88,000 nested-loop aggregate scans.
+--      Also added composite index ("Staff_Name", "Date") on 4_Timesheet_Table.
+--
 -- Refresh order:
 --   leave_status_by_staff_date
 --   → 1_Job_Task_Details_Table
+--   → 4_Timesheet_Table → keys_time
 --   → key02_job_task_staff_id
---   → 2_Staff_Task_Allocation_byDay (if also materialized)
+--   → 2_Staff_Task_Allocation_byDay
+--   → 3_Staff_Performance_Table
 -- =============================================================================
 
 
@@ -585,10 +632,18 @@ CREATE INDEX ON "1_Job_Task_Details_Table" ("Job_Task_Staff_ID");
 CREATE INDEX ON "1_Job_Task_Details_Table" ("Staff_Name");
 
 
-DROP VIEW IF EXISTS "4_Timesheet_Table" CASCADE;
+-- 4_Timesheet_Table (Optimizations A, B)
+-- A: Converted to MATERIALIZED VIEW — eliminates re-execution of all joins on every downstream query.
+-- B: Lookup LATERALs (jt_lkp, e_lkp, inv_lkp, k2_lkp) replaced with regular LEFT JOINs — allows
+--    the planner to use hash/merge joins across the full dataset instead of one nested-loop
+--    lookup per row. jt_lkp and e_lkp use DISTINCT ON subqueries to match the LIMIT 1 behaviour
+--    from the original (prevents row multiplication if the source has duplicate keys).
+--    Computation-only laterals (ic, ibt, mto) remain as CROSS JOIN LATERAL.
+-- Refresh order: 1_Job_Task_Details_Table → 4_Timesheet_Table → keys_time → key02_job_task_staff_id
+DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table" CASCADE;
 
 
-CREATE OR REPLACE VIEW "4_Timesheet_Table" AS
+CREATE MATERIALIZED VIEW "4_Timesheet_Table" AS
 SELECT
     (t."JobID" || t."TaskUUID" || t."StaffMemberUUID") AS "Job_Task_Staff_ID",
     t."UUID" AS "Timesheet_UUID",
@@ -639,11 +694,11 @@ SELECT
         ELSE 'Billable Tasks'
     END                                                               AS "Task_Category",
     -- Invoice_Number: LOOKUPVALUE(invoicetask[InvoiceID], invoicetask[UUID], Invoice_Task_ID)
-    inv_lkp.invoice_number                                            AS "Invoice_Number",
+    it."InvoiceID"                                                    AS "Invoice_Number",
     -- Month_Time_Recorded = DATE(YEAR(Date), MONTH(Date), 1) = first day of recorded month
     DATE_TRUNC('month', t."Date")::DATE                              AS "Month_Time_Recorded",
     -- Month_Time_Invoiced: first day of month the invoice was raised
-    inv_lkp.invoiced_month                                           AS "Month_Time_Invoiced",
+    DATE_TRUNC('month', inv."Date")::DATE                            AS "Month_Time_Invoiced",
     -- Invoiced_Minutes: LOOKUPVALUE(excel_recorded_invoiced_hours[Invoiced_Mins], ..., Timesheet_UUID)
     e_lkp.invoiced_mins                                              AS "Invoiced_Minutes",
     -- Month_Invoiced_On: DATEDIFF(Month_Time_Recorded, Month_Time_Invoiced, MONTH); -1→1, else diff+1; NULL if no invoice
@@ -663,18 +718,19 @@ SELECT
 FROM
     TIME t
     LEFT JOIN "key03_staff_table" s ON s."Staff_UUID" = t."StaffMemberUUID"
-    LEFT JOIN LATERAL (
-        SELECT jt."Task_Name", jt."Client_Name", jt."Task_Type", jt."Task_Completed"
-        FROM "1_Job_Task_Details_Table" jt
-        WHERE jt."Job_Task_Staff_ID" = (t."JobID" || t."TaskUUID" || t."StaffMemberUUID")
-        LIMIT 1
-    ) jt_lkp ON TRUE
-    LEFT JOIN LATERAL (
-        SELECT e.task, e.client, e.invoiced_mins
-        FROM excel_recorded_invoiced_hours e
-        WHERE e.timesheet_uuid = t."UUID"::text
-        LIMIT 1
-    ) e_lkp ON TRUE
+    -- jt_lkp: DISTINCT ON matches LIMIT 1 behaviour; regular JOIN allows hash/merge join (Opt B)
+    LEFT JOIN (
+        SELECT DISTINCT ON ("Job_Task_Staff_ID")
+            "Job_Task_Staff_ID", "Task_Name", "Client_Name", "Task_Type", "Task_Completed"
+        FROM "1_Job_Task_Details_Table"
+        ORDER BY "Job_Task_Staff_ID"
+    ) jt_lkp ON jt_lkp."Job_Task_Staff_ID" = (t."JobID" || t."TaskUUID" || t."StaffMemberUUID")
+    -- e_lkp: DISTINCT ON matches LIMIT 1 behaviour; regular JOIN allows hash/merge join (Opt B)
+    LEFT JOIN (
+        SELECT DISTINCT ON (timesheet_uuid) timesheet_uuid, task, client, invoiced_mins
+        FROM excel_recorded_invoiced_hours
+        ORDER BY timesheet_uuid
+    ) e_lkp ON e_lkp.timesheet_uuid = t."UUID"::text
     CROSS JOIN LATERAL (
         -- ic: pre-compute Is_Client to reuse across Invoiced_Time, Is_Billable, Billable_Selector
         SELECT NOT (
@@ -692,50 +748,42 @@ FROM
             OR COALESCE(jt_lkp."Client_Name", e_lkp.client) = 'Dinniss Admin'
         ) AS is_billable_task
     ) ibt
-    LEFT JOIN LATERAL (
-        -- inv_lkp: Invoice_Number (= InvoiceID) and Month_Time_Invoiced from invoicetask + invoice
-        SELECT it."InvoiceID"                            AS invoice_number,
-               DATE_TRUNC('month', inv."Date")::DATE     AS invoiced_month
-        FROM invoicetask it
-        LEFT JOIN invoice inv ON inv."ID" = it."InvoiceID"
-                              AND inv."IsDeleted" = FALSE
-        WHERE it."UUID" = t."InvoiceTaskUUID"
-          AND it."IsDeleted" = FALSE
-        LIMIT 1
-    ) inv_lkp ON TRUE
+    -- inv_lkp split into two regular JOINs; invoicetask.UUID is unique so no row multiplication (Opt B)
+    LEFT JOIN invoicetask it ON it."UUID" = t."InvoiceTaskUUID" AND it."IsDeleted" = FALSE
+    LEFT JOIN invoice inv ON inv."ID" = it."InvoiceID" AND inv."IsDeleted" = FALSE
     CROSS JOIN LATERAL (
         -- mto: Month_Invoiced_On = IF(ISBLANK(Invoice_Number), BLANK(), IF(Logic=-1, 1, Logic+1))
         --   Logic = DATEDIFF(Month_Time_Recorded, Month_Time_Invoiced, MONTH)
         SELECT CASE
-            WHEN inv_lkp.invoice_number IS NULL THEN NULL
+            WHEN it."InvoiceID" IS NULL THEN NULL
             ELSE (
                 CASE
                     WHEN (
-                        (EXTRACT(YEAR  FROM inv_lkp.invoiced_month)
+                        (EXTRACT(YEAR  FROM DATE_TRUNC('month', inv."Date")::DATE)
                          - EXTRACT(YEAR  FROM DATE_TRUNC('month', t."Date")::DATE)) * 12
-                        + EXTRACT(MONTH FROM inv_lkp.invoiced_month)
+                        + EXTRACT(MONTH FROM DATE_TRUNC('month', inv."Date")::DATE)
                         - EXTRACT(MONTH FROM DATE_TRUNC('month', t."Date")::DATE)
                     )::int = -1 THEN 1
                     ELSE (
-                        (EXTRACT(YEAR  FROM inv_lkp.invoiced_month)
+                        (EXTRACT(YEAR  FROM DATE_TRUNC('month', inv."Date")::DATE)
                          - EXTRACT(YEAR  FROM DATE_TRUNC('month', t."Date")::DATE)) * 12
-                        + EXTRACT(MONTH FROM inv_lkp.invoiced_month)
+                        + EXTRACT(MONTH FROM DATE_TRUNC('month', inv."Date")::DATE)
                         - EXTRACT(MONTH FROM DATE_TRUNC('month', t."Date")::DATE)
                     )::int + 1
                 END
             )
         END AS val
     ) mto
-    LEFT JOIN LATERAL (
-        -- k2_lkp: Job_Name from key06_job_table by Job_ID (avoids circular dep via key02→keys_time→4_Timesheet)
-        SELECT k."Job_Name"
-        FROM key06_job_table k
-        WHERE k."Job_ID" = t."JobID"
-        LIMIT 1
-    ) k2_lkp ON TRUE
+    -- k2_lkp: Job_ID is unique in key06_job_table; regular JOIN allows hash/merge join (Opt B)
+    LEFT JOIN key06_job_table k2_lkp ON k2_lkp."Job_ID" = t."JobID"
 WHERE
     t."Date" >= '2020-01-01'
     AND s."Staff_Name" IS NOT NULL;
+
+CREATE INDEX ON "4_Timesheet_Table" ("Job_Task_Staff_ID");
+CREATE INDEX ON "4_Timesheet_Table" ("Staff_Name");
+CREATE INDEX ON "4_Timesheet_Table" ("Date");
+CREATE INDEX ON "4_Timesheet_Table" ("Staff_Name", "Date");
 
 
 DROP VIEW IF EXISTS keys_time CASCADE;
@@ -752,10 +800,15 @@ FROM
     "4_Timesheet_Table";
 
 
+-- key02_job_task_staff_id (Optimization I)
+-- I: Converted to MATERIALIZED VIEW — eliminates re-execution of the UNION ALL + DISTINCT +
+--    per-row ILIKE scalar subquery (Task_Type1) on every build of 2_Staff_Task_Allocation_byDay.
+--    Both drop forms handle first-run transition from VIEW → MATERIALIZED VIEW.
 DROP VIEW IF EXISTS key02_job_task_staff_id CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS key02_job_task_staff_id CASCADE;
 
 
-CREATE OR REPLACE VIEW key02_job_task_staff_id AS
+CREATE MATERIALIZED VIEW key02_job_task_staff_id AS
 SELECT DISTINCT
     combined."Job_Task_Staff_ID",
     combined."Job_ID",
@@ -812,11 +865,21 @@ FROM
     LEFT JOIN "1_Job_Task_Details_Table" jt ON jt."Job_Task_Staff_ID" = combined."Job_Task_Staff_ID"
     LEFT JOIN "key06_job_table" j ON j."Job_ID" = combined."Job_ID";
 
+CREATE INDEX ON key02_job_task_staff_id ("Job_Task_Staff_ID");
+CREATE INDEX ON key02_job_task_staff_id ("Staff_Name");
 
-DROP VIEW IF EXISTS "2_Staff_Task_Allocation_byDay" CASCADE;
+
+-- 2_Staff_Task_Allocation_byDay (Optimizations C, J)
+-- C: Converted to MATERIALIZED VIEW with (Staff_Name, Date) and (Job_Task_Staff_ID) indexes.
+--    lv lateral (O(n⁴) inline jobtask × nested COUNT scan) replaced with a JOIN to
+--    leave_status_by_staff_date — the same pre-computed materialized view used by
+--    1_Job_Task_Details_Table. wkd lateral replaced with a regular LEFT JOIN.
+-- Refresh order: leave_status_by_staff_date → 1_Job_Task_Details_Table
+--   → key02_job_task_staff_id → 2_Staff_Task_Allocation_byDay
+DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay" CASCADE;
 
 
-CREATE OR REPLACE VIEW "2_Staff_Task_Allocation_byDay" AS
+CREATE MATERIALIZED VIEW "2_Staff_Task_Allocation_byDay" AS
 SELECT
     c.*,
     k.*,
@@ -904,51 +967,27 @@ FROM
     key01_calendar_date c
     CROSS JOIN key02_job_task_staff_id k
     LEFT JOIN "1_Job_Task_Details_Table" jt ON jt."Job_Task_Staff_ID" = k."Job_Task_Staff_ID"
-    LEFT JOIN LATERAL (
-        -- wkd: Is_Staff_Workable_DayOfWeek lookup
-        SELECT wd.working_day
-        FROM excel_workable_days wd
-        WHERE wd.staffname = k."Staff_Name"
-          AND wd.day_of_week = c."Weekday"
-        LIMIT 1
-    ) wkd ON TRUE
-    LEFT JOIN LATERAL (
-        -- lv: leave status for this staff on this date
-        --   is_full_day    = any leave task covering this date with Initial_Avg_Mins_perWorkDay = 480
-        --   has_partial_leave = any leave task covering this date with Initial_Avg_Mins_perWorkDay != 480
-        SELECT
-            COALESCE(BOOL_OR(mpd.mins_per_day =  480), FALSE) AS is_full_day,
-            COALESCE(BOOL_OR(mpd.mins_per_day != 480), FALSE) AS has_partial_leave
-        FROM jobtask lt
-        JOIN jobtaskassignee lta ON lta."JobTaskID" = lt."RemoteID"::uuid
-        LEFT JOIN jobdetails ljd ON ljd."RemoteID"::text = lt."JobDetailsRemoteID"::text
-        CROSS JOIN LATERAL (
-            SELECT lta."AllocatedMinutes"::float / NULLIF((
-                SELECT COUNT(*)
-                FROM key01_calendar_date wcal
-                WHERE wcal."Date" >= COALESCE(lt."StartDate", ljd."StartDate")
-                  AND wcal."Date" <= COALESCE(lt."DueDate",
-                          CASE WHEN ljd."CompletedDate" IS NULL THEN ljd."DueDate"
-                               ELSE LEAST(ljd."CompletedDate", ljd."DueDate") END)
-                  AND wcal."WeekEnd" = FALSE
-                  AND wcal."PublicHoliday" = FALSE
-                  AND EXISTS (
-                      SELECT 1 FROM excel_workable_days lewd
-                      WHERE lewd.staffname = lta."Name"
-                        AND lewd.day_of_week = wcal."Weekday"
-                        AND lewd.working_day = TRUE
-                  )
-            ), 0) AS mins_per_day
-        ) mpd
-        WHERE lt."IsDeleted" = FALSE
-          AND lta."Name" = k."Staff_Name"
-          AND lta."AllocatedMinutes" > 0
-          AND (lt."Name" ILIKE '%Holiday%' OR lt."Name" ILIKE '%Sick leave%' OR lt."Name" ILIKE '%Other leave%')
-          AND c."Date" >= COALESCE(lt."StartDate", ljd."StartDate")
-          AND c."Date" <= COALESCE(lt."DueDate",
-                  CASE WHEN ljd."CompletedDate" IS NULL THEN ljd."DueDate"
-                       ELSE LEAST(ljd."CompletedDate", ljd."DueDate") END)
-    ) lv ON TRUE;
+    -- wkd: DISTINCT ON matches LIMIT 1 behaviour; regular JOIN allows hash/merge join (Opt C)
+    LEFT JOIN (
+        SELECT DISTINCT ON (staffname, day_of_week) staffname, day_of_week, working_day
+        FROM excel_workable_days
+        ORDER BY staffname, day_of_week
+    ) wkd ON wkd.staffname = k."Staff_Name" AND wkd.day_of_week = c."Weekday"
+    -- lv: leave_status_by_staff_date replaces the O(n⁴) inline jobtask × nested COUNT scan (Opt C)
+    LEFT JOIN leave_status_by_staff_date lv
+        ON lv.staff_name = k."Staff_Name" AND lv."Date" = c."Date"
+-- Filter to only calendar dates within each task's adjusted date range (Optimization J)
+-- Without this, the CROSS JOIN produces N_dates × N_tasks rows; the vast majority have
+-- dates outside any task's window and evaluate to all-NULL KPI columns — wasted storage
+-- and scan time. With this filter the row count drops to SUM(task_duration_in_workdays).
+-- Is_Date_Between_Task_Days is always TRUE for retained rows (semantics unchanged for
+-- downstream aggregations in 3_Staff_Performance_Table).
+WHERE jt."StartDateAdjusted" IS NOT NULL
+  AND c."Date" >= jt."StartDateAdjusted"
+  AND c."Date" <= jt."DueDateAdjusted";
+
+CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Staff_Name", "Date");
+CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Job_Task_Staff_ID");
 
 
 DROP VIEW IF EXISTS key07_is_billable CASCADE;
@@ -961,43 +1000,33 @@ FROM
     "2_Staff_Task_Allocation_byDay";
 
 
-DROP VIEW IF EXISTS "3_Staff_Performance_Table" CASCADE;
+-- 3_Staff_Performance_Table (Optimizations D, E, F, G, H, K)
+-- D: Converted to MATERIALIZED VIEW with (Staff_Name, Date) index.
+-- E: Is_Workable_Day NOT EXISTS on 1_Job_Task_Details_Table replaced with
+--    leave_status_by_staff_date JOIN (lv_spt) — same pre-computed materialized view.
+-- F: Two excel_workable_days scalar subqueries merged into one LEFT JOIN (wd_lkp).
+--    excel_staff_adjustment_sheet scalar subquery merged into one LEFT JOIN (adj_lkp).
+-- G: itgt and pitgt LATERAL+LIMIT 1 replaced with regular LEFT JOINs — allows hash joins.
+-- H: 6 separate 2_Staff_Task_Allocation_byDay scans → 1 alloc_counts FILTER lateral (6× reduction).
+--    6 separate 4_Timesheet_Table scans → 1 ts_counts FILTER lateral (6× reduction).
+--    Note: original alr/olr used Staff_ID=Staff_UUID; unified to Staff_Name for consistency
+--    since 4_Timesheet_Table requires Staff_Name IS NOT NULL.
+-- Refresh order: 2_Staff_Task_Allocation_byDay → 4_Timesheet_Table → 3_Staff_Performance_Table
+DROP MATERIALIZED VIEW IF EXISTS "3_Staff_Performance_Table" CASCADE;
 
 
-CREATE OR REPLACE VIEW "3_Staff_Performance_Table" AS
+CREATE MATERIALIZED VIEW "3_Staff_Performance_Table" AS
 SELECT
     c.*,
     s.*,
-    -- Is_Workable_Day: IF(NOT PublicHoliday AND NOT WeekEnd,
-    --   IF(LOOKUPVALUE(2_Staff_Task_Allocation_byDay[Is_Full_Day_Leave],...Date,Staff_Name)=FALSE, TRUE, FALSE))
-    --   Is_Full_Day_Leave proxy: leave task for this staff covering this date with Initial_Avg_Mins_perWorkDay=480
+    -- Is_Workable_Day: replaced NOT EXISTS on 1_Job_Task_Details_Table with leave_status_by_staff_date (Opt E)
     CASE WHEN NOT c."PublicHoliday" AND NOT c."WeekEnd" THEN
-        NOT EXISTS (
-            SELECT 1
-            FROM "1_Job_Task_Details_Table" jt
-            WHERE jt."Staff_Name" = s."Staff_Name"
-              AND jt."Is_Task_a_Leave" = TRUE
-              AND c."Date" >= jt."StartDateAdjusted"
-              AND c."Date" <= jt."DueDateAdjusted"
-              AND jt."Initial_Avg_Mins_perWorkDay" = 480
-        )
+        NOT COALESCE(lv_spt.is_full_day, FALSE)
     END                                                           AS "Is_Workable_Day",
-    -- Is_Staff_Workable_DayOfWeek: LOOKUPVALUE(excel_workable_days[working_day], day_of_week, Weekday, staffname, Staff_Name)
-    (SELECT wd.working_day
-     FROM excel_workable_days wd
-     WHERE wd.staffname = s."Staff_Name"
-       AND wd.day_of_week = c."Weekday"
-     LIMIT 1)                                                     AS "Is_Staff_Workable_DayOfWeek",
-    -- Adjustment_Factor_by_Month: LOOKUPVALUE(excel_staff_adjustment_sheet[AdjustmentFactor], month, StartOfMonth, staffname, Staff_Name)
-    --   Returns 0 if no match (DAX: IF(ISBLANK(AdjFac), 0, AdjFac))
-    COALESCE(
-        (SELECT adj.adjustmentfactor
-         FROM excel_staff_adjustment_sheet adj
-         WHERE adj.staffname = s."Staff_Name"
-           AND adj.month::date = c."StartOfMonth"
-         LIMIT 1),
-        0
-    )                                                             AS "Adjustment_Factor_by_Month",
+    -- Is_Staff_Workable_DayOfWeek: merged from scalar subquery into wd_lkp JOIN (Opt F)
+    wd_lkp.working_day                                            AS "Is_Staff_Workable_DayOfWeek",
+    -- Adjustment_Factor_by_Month: merged from scalar subquery into adj_lkp JOIN (Opt F)
+    COALESCE(adj_lkp.adjustmentfactor, 0)                        AS "Adjustment_Factor_by_Month",
     -- Week_Of_Month: 1 + WEEKNUM(Date) - WEEKNUM(STARTOFMONTH(Date))
     1 + EXTRACT(WEEK FROM c."Date")::int
       - EXTRACT(WEEK FROM DATE_TRUNC('month', c."Date")::date)::int
@@ -1007,39 +1036,39 @@ SELECT
     -- Allocated_Holiday_Hours: SUM(Allo_Hrs_perWorkableDay_Final_Output) for Holiday tasks * -1
     --   Guard: IF(Overall_Recordable_Hours=0, BLANK(), ...)
     CASE WHEN orh.val = 0 THEN NULL
-         ELSE -hol.hrs
+         ELSE -alloc_agg.hol_hrs
     END                                                           AS "Allocated_Holiday_Hours",
     -- Allocated_Other_Leave_Hours: SUM for Sick leave / Other leave tasks * -1
     CASE WHEN orh.val = 0 THEN NULL
-         ELSE -lvl.hrs
+         ELSE -alloc_agg.lvl_hrs
     END                                                           AS "Allocated_Other_Leave_Hours",
     -- Non_Leave_Recordable_Hours: IF(Overall=0, 0, Overall + Holiday + OtherLeave)
     --   Holiday and OtherLeave are already negative, BLANK()→0 in DAX addition
     CASE WHEN orh.val = 0 THEN 0
-         ELSE orh.val + COALESCE(-hol.hrs, 0) + COALESCE(-lvl.hrs, 0)
+         ELSE orh.val + COALESCE(-alloc_agg.hol_hrs, 0) + COALESCE(-alloc_agg.lvl_hrs, 0)
     END                                                           AS "Non_Leave_Recordable_Hours",
     -- Allocated_Dinniss_Admin_Hours: SUM for Task_Category="Admin Tasks" (no * -1)
     CASE WHEN orh.val = 0 THEN NULL
-         ELSE adm.hrs
+         ELSE alloc_agg.adm_hrs
     END                                                           AS "Allocated_Dinniss_Admin_Hours",
     -- Available_Billable_Hours = Non_Leave_Recordable_Hours - Allocated_Dinniss_Admin_Hours
     --   Guard: IF(Overall=0, 0, Logic)
     CASE WHEN orh.val = 0 THEN 0
-         ELSE orh.val + COALESCE(-hol.hrs, 0) + COALESCE(-lvl.hrs, 0) - COALESCE(adm.hrs, 0)
+         ELSE orh.val + COALESCE(-alloc_agg.hol_hrs, 0) + COALESCE(-alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
     END                                                           AS "Available_Billable_Hours",
     -- Allocated_Billable_Hours_Original: SUM(Allo_Hrs_perWorkDay_AdjLeaves_FIN01) for Billable Tasks
     --   Guard: IF(Overall=0, BLANK(), ...)
     CASE WHEN orh.val = 0 THEN NULL
-         ELSE bil_orig.hrs
+         ELSE alloc_agg.bil_orig_hrs
     END                                                           AS "Allocated_Billable_Hours_Original",
     -- Allocated_Billable_Hours_Capacity_Planning: SUM(Allo_Hrs_perWorkableDay_Final_Output) for Billable Tasks
     --   Adjusted for task hours worked/remaining
     CASE WHEN orh.val = 0 THEN NULL
-         ELSE bil_cap.hrs
+         ELSE alloc_agg.bil_cap_hrs
     END                                                           AS "Allocated_Billable_Hours_Capacity_Planning",
     -- Target_Billable_Hours: Available_Billable_Hours * LOOKUPVALUE(excel_incentive_targets[target_billable_hours], staff_name, StartOfMonth=month_year)
     CASE WHEN orh.val = 0 THEN 0
-         ELSE (orh.val + COALESCE(-hol.hrs, 0) + COALESCE(-lvl.hrs, 0) - COALESCE(adm.hrs, 0))
+         ELSE (orh.val + COALESCE(-alloc_agg.hol_hrs, 0) + COALESCE(-alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0))
               * itgt.target_billable_hours
     END                                                           AS "Target_Billable_Hours",
     -- Target_Non_Leave_Hours: Non_Leave_Recordable_Hours * target_billable_hours; IF(Logic<=0, BLANK(), Logic)
@@ -1053,45 +1082,39 @@ SELECT
     -- M2Date_Target_Billable_Hours: BLANK() if Date >= TODAY, else Target_Billable_Hours
     CASE WHEN c."Date" >= CURRENT_DATE THEN NULL
          WHEN orh.val = 0               THEN 0
-         ELSE (orh.val + COALESCE(-hol.hrs, 0) + COALESCE(-lvl.hrs, 0) - COALESCE(adm.hrs, 0))
+         ELSE (orh.val + COALESCE(-alloc_agg.hol_hrs, 0) + COALESCE(-alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0))
               * itgt.target_billable_hours
     END                                                           AS "M2Date_Target_Billable_Hours",
     -- Annual_Leave_Hours_Recorded: SUM(Recorded_Minutes/60) from 4_Timesheet_Table for Holiday tasks * -1
-    -alr.hrs                                                      AS "Annual_Leave_Hours_Recorded",
+    -ts_agg.alr_mins / 60.0                                   AS "Annual_Leave_Hours_Recorded",
     -- Other_Leave_Hours_Recorded: SUM(Recorded_Minutes/60) for Sick leave / Other leave tasks * -1
-    -olr.hrs                                                      AS "Other_Leave_Hours_Recorded",
+    -ts_agg.olr_mins / 60.0                                   AS "Other_Leave_Hours_Recorded",
     -- Dinniss_Admin_Hours_Recorded: SUM(Recorded_Minutes/60) for Admin Tasks (positive, no * -1)
-    dar.hrs                                                       AS "Dinniss_Admin_Hours_Recorded",
+    ts_agg.dar_mins / 60.0                                     AS "Dinniss_Admin_Hours_Recorded",
     -- Billable_Hours_Recorded: SUM(Recorded_Minutes/60) for Billable Tasks (positive, no * -1)
-    bhr.hrs                                                       AS "Billable_Hours_Recorded",
+    ts_agg.bhr_mins / 60.0                                     AS "Billable_Hours_Recorded",
     -- Overall_Hours_Recorded: (Annual + Other) * -1 + Billable + Admin
     --   Annual and Other are already negative, so * -1 makes them positive: = |Annual| + |Other| + Billable + Admin
-    COALESCE(alr.hrs, 0) + COALESCE(olr.hrs, 0)
-    + COALESCE(bhr.hrs, 0) + COALESCE(dar.hrs, 0)               AS "Overall_Hours_Recorded",
+    COALESCE(ts_agg.alr_mins, 0) / 60.0 + COALESCE(ts_agg.olr_mins, 0) / 60.0
+    + COALESCE(ts_agg.bhr_mins, 0) / 60.0 + COALESCE(ts_agg.dar_mins, 0) / 60.0
+                                                                  AS "Overall_Hours_Recorded",
     -- Billable_Hours_Invoiced: SUM(Invoiced_Minutes/60) where Invoiced_Time="Invoiced" AND Billable Tasks
-    bhi.hrs                                                       AS "Billable_Hours_Invoiced",
+    ts_agg.bhi_mins / 60.0                                     AS "Billable_Hours_Invoiced",
     -- Billable_Hours_To_Be_Invoiced: SUM(Recorded_Minutes/60) where Invoiced_Time="Un-Invoiced" AND Billable Tasks
-    btu.hrs                                                       AS "Billable_Hours_To_Be_Invoiced",
+    ts_agg.btu_mins / 60.0                                     AS "Billable_Hours_To_Be_Invoiced",
     -- M2Date_Overall_Hours_Recorded: BLANK() if Date >= TODAY, else Overall_Hours_Recorded
     CASE WHEN c."Date" >= CURRENT_DATE THEN NULL
-         ELSE COALESCE(alr.hrs, 0) + COALESCE(olr.hrs, 0)
-              + COALESCE(bhr.hrs, 0) + COALESCE(dar.hrs, 0)
+         ELSE COALESCE(ts_agg.alr_mins, 0) / 60.0 + COALESCE(ts_agg.olr_mins, 0) / 60.0
+              + COALESCE(ts_agg.bhr_mins, 0) / 60.0 + COALESCE(ts_agg.dar_mins, 0) / 60.0
     END                                                           AS "M2Date_Overall_Hours_Recorded",
     -- Allocated_Non_Leave_Hours_Capacity_Planning_CHECK_VARIABLES:
     --   SUM(Allo_Hrs_perWorkableDay_Final_Output) for Admin OR Billable Tasks
     --   Guard: IF(Overall_Recordable_Hours=0, BLANK(), ...)
     CASE WHEN orh.val = 0 THEN NULL
-         ELSE anl.hrs
+         ELSE alloc_agg.anl_hrs
     END                                                           AS "Allocated_Non_Leave_Hours_Capacity_Planning_CHECK_VARIABLES",
-    -- Adjustment_Factor_by_Day: LOOKUPVALUE(excel_workable_days[adjustment_factor], day_of_week, staffname); default 0
-    COALESCE(
-        (SELECT wd.adjustment_factor
-         FROM excel_workable_days wd
-         WHERE wd.staffname = s."Staff_Name"
-           AND wd.day_of_week = c."Weekday"
-         LIMIT 1),
-        0
-    )                                                             AS "Adjustment_Factor_by_Day",
+    -- Adjustment_Factor_by_Day: merged from scalar subquery into wd_lkp JOIN (Opt F)
+    COALESCE(wd_lkp.adjustment_factor, 0)                        AS "Adjustment_Factor_by_Day",
     -- Is_Current_Month: Date falls in the same year+month as TODAY
     (EXTRACT(YEAR  FROM c."Date") = EXTRACT(YEAR  FROM CURRENT_DATE)
      AND EXTRACT(MONTH FROM c."Date") = EXTRACT(MONTH FROM CURRENT_DATE))
@@ -1120,154 +1143,106 @@ SELECT
 FROM
     key01_calendar_date c
     CROSS JOIN key03_staff_table s
+    -- lv_spt: Is_Workable_Day full-day leave flag; replaces NOT EXISTS on 1_Job_Task_Details_Table (Opt E)
+    LEFT JOIN leave_status_by_staff_date lv_spt
+        ON lv_spt.staff_name = s."Staff_Name" AND lv_spt."Date" = c."Date"
+    -- wd_lkp: merges Is_Staff_Workable_DayOfWeek + Adjustment_Factor_by_Day into one JOIN (Opt F)
+    LEFT JOIN (
+        SELECT DISTINCT ON (staffname, day_of_week)
+            staffname, day_of_week, working_day, adjustment_factor
+        FROM excel_workable_days
+        ORDER BY staffname, day_of_week
+    ) wd_lkp ON wd_lkp.staffname = s."Staff_Name" AND wd_lkp.day_of_week = c."Weekday"
+    -- adj_lkp: merges Adjustment_Factor_by_Month scalar subquery into one JOIN (Opt F)
+    LEFT JOIN (
+        SELECT DISTINCT ON (staffname, month::date)
+            staffname, month::date AS month_date, adjustmentfactor
+        FROM excel_staff_adjustment_sheet
+        ORDER BY staffname, month::date
+    ) adj_lkp ON adj_lkp.staffname = s."Staff_Name" AND adj_lkp.month_date = c."StartOfMonth"
     CROSS JOIN LATERAL (
         -- orh: placeholder for Overall_Recordable_Hours (TBD — update when DAX provided)
         SELECT NULL::double precision AS val
     ) orh
-    CROSS JOIN LATERAL (
-        -- hol: SUM of Allo_Hrs_perWorkableDay_Final_Output for Holiday tasks, this staff, this date
-        SELECT SUM(a."Allo_Hrs_perWorkableDay_Final_Output") AS hrs
+    -- alloc_agg: pre-aggregate 2_Staff_Task_Allocation_byDay once by (Staff_Name, Date),
+    -- then hash-join to the outer loop — replaces ~44,000 individual nested-loop aggregate
+    -- scans from the previous CROSS JOIN LATERAL alloc_counts pattern (Opt K)
+    LEFT JOIN (
+        SELECT
+            a."Staff_Name",
+            a."Date",
+            SUM(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE a."Task_Name" ILIKE '%Holiday%')                       AS hol_hrs,
+            SUM(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE a."Task_Name" ILIKE '%Sick leave%'
+                                                                   OR    a."Task_Name" ILIKE '%Other leave%')                  AS lvl_hrs,
+            SUM(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE a."Task_Category" = 'Admin Tasks')                     AS adm_hrs,
+            SUM(a."Allo_Hrs_perWorkDay_AdjLeaves_FIN01")  FILTER (WHERE a."Task_Category" = 'Billable Tasks')                  AS bil_orig_hrs,
+            SUM(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE a."Task_Category" = 'Billable Tasks')                  AS bil_cap_hrs,
+            SUM(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE a."Task_Category" IN ('Admin Tasks', 'Billable Tasks')) AS anl_hrs
         FROM "2_Staff_Task_Allocation_byDay" a
-        WHERE a."Staff_Name" = s."Staff_Name"
-          AND a."Date" = c."Date"
-          AND a."Task_Name" ILIKE '%Holiday%'
-    ) hol
-    CROSS JOIN LATERAL (
-        -- lvl: SUM for Sick leave / Other leave tasks
-        SELECT SUM(a."Allo_Hrs_perWorkableDay_Final_Output") AS hrs
-        FROM "2_Staff_Task_Allocation_byDay" a
-        WHERE a."Staff_Name" = s."Staff_Name"
-          AND a."Date" = c."Date"
-          AND (a."Task_Name" ILIKE '%Sick leave%' OR a."Task_Name" ILIKE '%Other leave%')
-    ) lvl
-    CROSS JOIN LATERAL (
-        -- adm: SUM for Admin Tasks (Task_Category = 'Admin Tasks')
-        SELECT SUM(a."Allo_Hrs_perWorkableDay_Final_Output") AS hrs
-        FROM "2_Staff_Task_Allocation_byDay" a
-        WHERE a."Staff_Name" = s."Staff_Name"
-          AND a."Date" = c."Date"
-          AND a."Task_Category" = 'Admin Tasks'
-    ) adm
-    CROSS JOIN LATERAL (
-        -- bil_orig: SUM of Allo_Hrs_perWorkDay_AdjLeaves_FIN01 for Billable Tasks
-        SELECT SUM(a."Allo_Hrs_perWorkDay_AdjLeaves_FIN01") AS hrs
-        FROM "2_Staff_Task_Allocation_byDay" a
-        WHERE a."Staff_Name" = s."Staff_Name"
-          AND a."Date" = c."Date"
-          AND a."Task_Category" = 'Billable Tasks'
-    ) bil_orig
-    CROSS JOIN LATERAL (
-        -- bil_cap: SUM of Allo_Hrs_perWorkableDay_Final_Output for Billable Tasks
-        SELECT SUM(a."Allo_Hrs_perWorkableDay_Final_Output") AS hrs
-        FROM "2_Staff_Task_Allocation_byDay" a
-        WHERE a."Staff_Name" = s."Staff_Name"
-          AND a."Date" = c."Date"
-          AND a."Task_Category" = 'Billable Tasks'
-    ) bil_cap
-    LEFT JOIN LATERAL (
-        -- itgt: LOOKUPVALUE(excel_incentive_targets[target_*], staff_name, month_year=StartOfMonth)
-        SELECT it.target_billable_hours,
-               it.target_recorded_2_billable_hrs,
-               it.target_allocated_2_billable_hrs,
-               it.target_invoiced_2_billable_hrs
-        FROM excel_incentive_targets it
-        WHERE it.staff_name = s."Staff_Name"
-          AND it.month_year::date = c."StartOfMonth"
-        LIMIT 1
-    ) itgt ON TRUE
+        GROUP BY a."Staff_Name", a."Date"
+    ) alloc_agg ON alloc_agg."Staff_Name" = s."Staff_Name" AND alloc_agg."Date" = c."Date"
+    -- itgt: regular LEFT JOIN replaces LATERAL+LIMIT 1 — allows hash/merge join (Opt G)
+    LEFT JOIN (
+        SELECT DISTINCT ON (staff_name, month_year::date)
+            staff_name, month_year::date AS month_date,
+            target_billable_hours, target_recorded_2_billable_hrs,
+            target_allocated_2_billable_hrs, target_invoiced_2_billable_hrs
+        FROM excel_incentive_targets
+        ORDER BY staff_name, month_year::date
+    ) itgt ON itgt.staff_name = s."Staff_Name" AND itgt.month_date = c."StartOfMonth"
     CROSS JOIN LATERAL (
         -- tnl: Non_Leave_Recordable_Hours * target_billable_hours (pre-computed for Target_Non_Leave_Hours guard)
         SELECT (CASE WHEN orh.val = 0 THEN 0
-                     ELSE orh.val + COALESCE(-hol.hrs, 0) + COALESCE(-lvl.hrs, 0)
+                     ELSE orh.val + COALESCE(-alloc_agg.hol_hrs, 0) + COALESCE(-alloc_agg.lvl_hrs, 0)
                 END) * itgt.target_billable_hours AS val
     ) tnl
     CROSS JOIN LATERAL (
         -- trec: Target_Billable_Hours * target_recorded_2_billable_hrs (for Target_Hours_to_be_Recorded guard)
         SELECT (CASE WHEN orh.val = 0 THEN 0
-                     ELSE (orh.val + COALESCE(-hol.hrs, 0) + COALESCE(-lvl.hrs, 0) - COALESCE(adm.hrs, 0))
+                     ELSE (orh.val + COALESCE(-alloc_agg.hol_hrs, 0) + COALESCE(-alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0))
                           * itgt.target_billable_hours
                 END) * itgt.target_recorded_2_billable_hrs AS val
     ) trec
     CROSS JOIN LATERAL (
         -- talloc: Target_Billable_Hours * target_allocated_2_billable_hrs (for Target_Hours_to_be_Allocated guard)
         SELECT (CASE WHEN orh.val = 0 THEN 0
-                     ELSE (orh.val + COALESCE(-hol.hrs, 0) + COALESCE(-lvl.hrs, 0) - COALESCE(adm.hrs, 0))
+                     ELSE (orh.val + COALESCE(-alloc_agg.hol_hrs, 0) + COALESCE(-alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0))
                           * itgt.target_billable_hours
                 END) * itgt.target_allocated_2_billable_hrs AS val
     ) talloc
     CROSS JOIN LATERAL (
         -- tinv: Target_Billable_Hours * target_invoiced_2_billable_hrs (for Target_Hours_to_be_Invoiced guard)
         SELECT (CASE WHEN orh.val = 0 THEN 0
-                     ELSE (orh.val + COALESCE(-hol.hrs, 0) + COALESCE(-lvl.hrs, 0) - COALESCE(adm.hrs, 0))
+                     ELSE (orh.val + COALESCE(-alloc_agg.hol_hrs, 0) + COALESCE(-alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0))
                           * itgt.target_billable_hours
                 END) * itgt.target_invoiced_2_billable_hrs AS val
     ) tinv
-    LEFT JOIN LATERAL (
-        -- pitgt: percent targets looked up by month_year = Date (only rows where Date = first of month will match)
-        SELECT it.target_billable_hours,
-               it.target_recorded_2_billable_hrs,
-               it.target_allocated_2_billable_hrs,
-               it.target_invoiced_2_billable_hrs
-        FROM excel_incentive_targets it
-        WHERE it.staff_name = s."Staff_Name"
-          AND it.month_year::date = c."Date"
-        LIMIT 1
-    ) pitgt ON TRUE
-    CROSS JOIN LATERAL (
-        -- alr: SUM(Recorded_Minutes)/60 from 4_Timesheet_Table for Holiday tasks, this staff, this date
-        SELECT SUM(ts."Recorded_Minutes") / 60.0 AS hrs
+    -- pitgt: regular LEFT JOIN replaces LATERAL+LIMIT 1 — allows hash/merge join (Opt G)
+    --   Matches only when Date = first of month (month_year is always first-of-month)
+    LEFT JOIN (
+        SELECT DISTINCT ON (staff_name, month_year::date)
+            staff_name, month_year::date AS month_date,
+            target_billable_hours, target_recorded_2_billable_hrs,
+            target_allocated_2_billable_hrs, target_invoiced_2_billable_hrs
+        FROM excel_incentive_targets
+        ORDER BY staff_name, month_year::date
+    ) pitgt ON pitgt.staff_name = s."Staff_Name" AND pitgt.month_date = c."Date"
+    -- ts_agg: pre-aggregate 4_Timesheet_Table once by (Staff_Name, Date),
+    -- then hash-join to the outer loop — replaces ~44,000 individual nested-loop aggregate
+    -- scans from the previous CROSS JOIN LATERAL ts_counts pattern (Opt K)
+    LEFT JOIN (
+        SELECT
+            ts."Staff_Name",
+            ts."Date"::date                                                                                                        AS ts_date,
+            SUM(ts."Recorded_Minutes") FILTER (WHERE ts."Task_Name" ILIKE '%Holiday%')                                            AS alr_mins,
+            SUM(ts."Recorded_Minutes") FILTER (WHERE ts."Task_Name" ILIKE '%Sick leave%'
+                                                OR   ts."Task_Name" ILIKE '%Other leave%')                                        AS olr_mins,
+            SUM(ts."Recorded_Minutes") FILTER (WHERE ts."Task_Category" = 'Admin Tasks')                                          AS dar_mins,
+            SUM(ts."Recorded_Minutes") FILTER (WHERE ts."Task_Category" = 'Billable Tasks')                                       AS bhr_mins,
+            SUM(ts."Invoiced_Minutes") FILTER (WHERE ts."Invoiced_Time" = 'Invoiced'    AND ts."Task_Category" = 'Billable Tasks') AS bhi_mins,
+            SUM(ts."Recorded_Minutes") FILTER (WHERE ts."Invoiced_Time" = 'Un-Invoiced' AND ts."Task_Category" = 'Billable Tasks') AS btu_mins
         FROM "4_Timesheet_Table" ts
-        WHERE ts."Staff_ID" = s."Staff_UUID"
-          AND ts."Task_Name" ILIKE '%Holiday%'
-          AND ts."Date"::date = c."Date"
-    ) alr
-    CROSS JOIN LATERAL (
-        -- olr: SUM(Recorded_Minutes)/60 for Sick leave / Other leave tasks (matched by Staff_ID = Staff_UUID)
-        SELECT SUM(ts."Recorded_Minutes") / 60.0 AS hrs
-        FROM "4_Timesheet_Table" ts
-        WHERE ts."Staff_ID" = s."Staff_UUID"
-          AND (ts."Task_Name" ILIKE '%Sick leave%' OR ts."Task_Name" ILIKE '%Other leave%')
-          AND ts."Date"::date = c."Date"
-    ) olr
-    CROSS JOIN LATERAL (
-        -- dar: SUM(Recorded_Minutes)/60 for Admin Tasks (matched by Staff_Name)
-        SELECT SUM(ts."Recorded_Minutes") / 60.0 AS hrs
-        FROM "4_Timesheet_Table" ts
-        WHERE ts."Staff_Name" = s."Staff_Name"
-          AND ts."Task_Category" = 'Admin Tasks'
-          AND ts."Date"::date = c."Date"
-    ) dar
-    CROSS JOIN LATERAL (
-        -- bhr: SUM(Recorded_Minutes)/60 for Billable Tasks (matched by Staff_Name)
-        SELECT SUM(ts."Recorded_Minutes") / 60.0 AS hrs
-        FROM "4_Timesheet_Table" ts
-        WHERE ts."Staff_Name" = s."Staff_Name"
-          AND ts."Task_Category" = 'Billable Tasks'
-          AND ts."Date"::date = c."Date"
-    ) bhr
-    CROSS JOIN LATERAL (
-        -- bhi: SUM(Invoiced_Minutes/60) where Invoiced_Time="Invoiced" AND Billable Tasks
-        SELECT SUM(ts."Invoiced_Minutes") / 60.0 AS hrs
-        FROM "4_Timesheet_Table" ts
-        WHERE ts."Staff_Name" = s."Staff_Name"
-          AND ts."Invoiced_Time" = 'Invoiced'
-          AND ts."Task_Category" = 'Billable Tasks'
-          AND ts."Date"::date = c."Date"
-    ) bhi
-    CROSS JOIN LATERAL (
-        -- btu: SUM(Recorded_Minutes/60) where Invoiced_Time="Un-Invoiced" AND Billable Tasks
-        SELECT SUM(ts."Recorded_Minutes") / 60.0 AS hrs
-        FROM "4_Timesheet_Table" ts
-        WHERE ts."Staff_Name" = s."Staff_Name"
-          AND ts."Invoiced_Time" = 'Un-Invoiced'
-          AND ts."Task_Category" = 'Billable Tasks'
-          AND ts."Date"::date = c."Date"
-    ) btu
-    CROSS JOIN LATERAL (
-        -- anl: SUM(Allo_Hrs_perWorkableDay_Final_Output) for Admin Tasks OR Billable Tasks
-        SELECT SUM(a."Allo_Hrs_perWorkableDay_Final_Output") AS hrs
-        FROM "2_Staff_Task_Allocation_byDay" a
-        WHERE a."Staff_Name" = s."Staff_Name"
-          AND (a."Task_Category" = 'Admin Tasks' OR a."Task_Category" = 'Billable Tasks')
-          AND a."Date" = c."Date"
-    ) anl;
+        GROUP BY ts."Staff_Name", ts."Date"::date
+    ) ts_agg ON ts_agg."Staff_Name" = s."Staff_Name" AND ts_agg.ts_date = c."Date";
+
+CREATE INDEX ON "3_Staff_Performance_Table" ("Staff_Name", "Date");
