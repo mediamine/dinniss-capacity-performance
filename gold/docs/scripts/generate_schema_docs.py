@@ -54,8 +54,9 @@ def generate_schema_documentation(connection_string: str, output_file: str = 'sc
         f.write("-" * 80 + "\n")
         f.write("1. Tables\n")
         f.write("2. Views\n")
-        f.write("3. Indexes\n")
-        f.write("4. Statistics\n")
+        f.write("3. Materialized Views\n")
+        f.write("4. Indexes\n")
+        f.write("5. Statistics\n")
         f.write("\n\n")
         
         # Get all tables
@@ -202,10 +203,60 @@ def generate_schema_documentation(connection_string: str, output_file: str = 'sc
             
             f.write("\n" + "=" * 80 + "\n")
         
+        # Get all materialized views
+        cursor.execute("""
+            SELECT matviewname
+            FROM pg_matviews
+            WHERE schemaname = 'public'
+            ORDER BY matviewname
+        """)
+        matviews = [row[0] for row in cursor.fetchall()]
+        logger.info("Found %d materialized views to document.", len(matviews))
+
+        # Document each materialized view
+        f.write("\n\n")
+        f.write("=" * 80 + "\n")
+        f.write("3. MATERIALIZED VIEWS\n")
+        f.write("=" * 80 + "\n\n")
+
+        for mv_name in matviews:
+            logger.info("Documenting materialized view: %s", mv_name)
+            f.write(f"\nMaterialized View: {mv_name}\n")
+            f.write("-" * 80 + "\n")
+
+            # Get definition
+            cursor.execute("""
+                SELECT definition
+                FROM pg_matviews
+                WHERE matviewname = %s
+            """, (mv_name,))
+            mv_def = cursor.fetchone()[0]
+            f.write("\nDefinition:\n")
+            f.write(mv_def)
+            f.write("\n\n")
+
+            # Get columns
+            cursor.execute("""
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_name = %s
+                ORDER BY ordinal_position
+            """, (mv_name,))
+            f.write("Columns:\n")
+            for col in cursor.fetchall():
+                f.write(f"  - {col[0]} ({col[1]})\n")
+
+            # Get row count
+            cursor.execute(f'SELECT COUNT(*) FROM "{mv_name}"')
+            row_count = cursor.fetchone()[0]
+            f.write(f"\nRow Count: {row_count:,}\n")
+
+            f.write("\n" + "=" * 80 + "\n")
+
         # Document indexes
         f.write("\n\n")
         f.write("=" * 80 + "\n")
-        f.write("3. INDEXES\n")
+        f.write("4. INDEXES\n")
         f.write("=" * 80 + "\n\n")
         
         cursor.execute("""
@@ -231,7 +282,7 @@ def generate_schema_documentation(connection_string: str, output_file: str = 'sc
         # Statistics
         f.write("\n\n")
         f.write("=" * 80 + "\n")
-        f.write("4. DATABASE STATISTICS\n")
+        f.write("5. DATABASE STATISTICS\n")
         f.write("=" * 80 + "\n\n")
         
         # Table sizes
@@ -239,11 +290,11 @@ def generate_schema_documentation(connection_string: str, output_file: str = 'sc
             SELECT 
                 schemaname,
                 relname,
-                pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as size,
+                pg_size_pretty(pg_total_relation_size(quote_ident(schemaname)||'.'||quote_ident(relname))) as size,
                 n_live_tup as row_count
             FROM pg_stat_user_tables
             WHERE schemaname = 'public'
-            ORDER BY pg_total_relation_size(schemaname||'.'||relname) DESC
+            ORDER BY pg_total_relation_size(quote_ident(schemaname)||'.'||quote_ident(relname)) DESC
             LIMIT 20
         """)
         
@@ -260,6 +311,7 @@ def generate_schema_documentation(connection_string: str, output_file: str = 'sc
         f.write("-" * 80 + "\n")
         f.write(f"Total Tables: {len(tables)}\n")
         f.write(f"Total Views: {len(views)}\n")
+        f.write(f"Total Materialized Views: {len(matviews)}\n")
         
         # Get database size
         cursor.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
@@ -270,10 +322,11 @@ def generate_schema_documentation(connection_string: str, output_file: str = 'sc
     conn.close()
 
     logger.info(
-        "Schema documentation generated: %s (%d tables, %d views documented).",
+        "Schema documentation generated: %s (%d tables, %d views, %d materialized views documented).",
         output_file,
         len(tables),
         len(views),
+        len(matviews),
     )
 
 

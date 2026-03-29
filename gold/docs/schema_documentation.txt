@@ -1,7 +1,7 @@
 ================================================================================
 PostgreSQL Database Schema Documentation
 ================================================================================
-Generated: 2026-03-25 01:35:39
+Generated: 2026-03-28 19:43:26
 Database: dinniss-capacity-performance-db-gold
 ================================================================================
 
@@ -9,8 +9,9 @@ TABLE OF CONTENTS
 --------------------------------------------------------------------------------
 1. Tables
 2. Views
-3. Indexes
-4. Statistics
+3. Materialized Views
+4. Indexes
+5. Statistics
 
 
 ================================================================================
@@ -1471,177 +1472,6 @@ RemoteID, WhenUpsertedIntoDataStore, MirrorRemoteID, IsDeleted, WhenCreated...
 ================================================================================
 
 
-View: 1_Job_Task_Details_Table
---------------------------------------------------------------------------------
-
-Definition:
- SELECT (((jt."JobDetailsRemoteID")::text || jt."UUID") || jta."UUID") AS "Job_Task_Staff_ID",
-    jt."JobDetailsRemoteID" AS "Job_ID",
-    jt."UUID" AS "Task_UUID",
-    jt."Name" AS "Task_Name",
-    jt."EstimatedMinutes",
-    jt."ActualMinutes",
-    jt."Billable" AS "Task_Billable",
-    jt."Completed" AS "Task_Completed",
-    jta."UUID" AS "Staff_UUID",
-    jta."Name" AS "Staff_Name",
-    cd."Name" AS "Client_Name",
-    jt."StartDate",
-    jt."DueDate",
-    jta."AllocatedMinutes" AS "Task_Allocated_Mins"
-   FROM (((jobtask jt
-     LEFT JOIN jobtaskassignee jta ON ((jta."JobTaskID" = (jt."RemoteID")::uuid)))
-     LEFT JOIN jobdetails jd ON (((jd."RemoteID")::text = (jt."JobDetailsRemoteID")::text)))
-     LEFT JOIN clientdetails cd ON ((cd."UUID" = jd."ClientUUID")))
-  WHERE ((jt."IsDeleted" = false) AND (jta."Name" IS NOT NULL) AND (jta."Name" <> ALL (ARRAY['Anna Williams'::text, 'Conor Cameron'::text, 'Conor O''Brien'::text, 'Dinniss'::text, 'Sahar Sedaghat'::text, 'The OLD - Dani Millar'::text])));
-
-Columns:
-  - Job_Task_Staff_ID (text)
-  - Job_ID (character varying)
-  - Task_UUID (uuid)
-  - Task_Name (text)
-  - EstimatedMinutes (numeric)
-  - ActualMinutes (numeric)
-  - Task_Billable (boolean)
-  - Task_Completed (boolean)
-  - Staff_UUID (uuid)
-  - Staff_Name (text)
-  - Client_Name (text)
-  - StartDate (timestamp without time zone)
-  - DueDate (timestamp without time zone)
-  - Task_Allocated_Mins (numeric)
-
-Row Count: 26,923
-
-================================================================================
-
-View: 2_Staff_Task_Allocation_byDay
---------------------------------------------------------------------------------
-
-Definition:
- SELECT c."Date",
-    c."PublicHoliday",
-    c."Weekday",
-    c."WeekEnd",
-    c."StartOfMonth",
-    c."EndOfMonth",
-    c."Is_Range_for_Invoicing",
-    k."Job_Task_Staff_ID",
-    k."Job_ID",
-    k."Staff_Name",
-    k."Task_Name",
-    k."Client_Name",
-    k."Job_Name",
-    k."Task_Category",
-    k."Task_Type1",
-        CASE
-            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text)) THEN false
-            ELSE true
-        END AS "Is_Client",
-        CASE
-            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Task_Type1" = 'Coaching'::text)) THEN false
-            ELSE true
-        END AS "Is_Billable",
-        CASE
-            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Task_Type1" = 'Coaching'::text)) THEN 'Not Billable'::text
-            ELSE 'Billable'::text
-        END AS "Billable_Selector"
-   FROM (key01_calendar_date c
-     CROSS JOIN key02_job_task_staff_id k);
-
-Columns:
-  - Date (date)
-  - PublicHoliday (boolean)
-  - Weekday (integer)
-  - WeekEnd (boolean)
-  - StartOfMonth (date)
-  - EndOfMonth (date)
-  - Is_Range_for_Invoicing (boolean)
-  - Job_Task_Staff_ID (text)
-  - Job_ID (character varying)
-  - Staff_Name (text)
-  - Task_Name (text)
-  - Client_Name (text)
-  - Job_Name (text)
-  - Task_Category (text)
-  - Task_Type1 (text)
-  - Is_Client (boolean)
-  - Is_Billable (boolean)
-  - Billable_Selector (text)
-
-Row Count: 64,215,753
-
-================================================================================
-
-View: 3_Staff_Performance_Table
---------------------------------------------------------------------------------
-
-Definition:
- SELECT c."Date",
-    c."PublicHoliday",
-    c."Weekday",
-    c."WeekEnd",
-    c."StartOfMonth",
-    c."EndOfMonth",
-    c."Is_Range_for_Invoicing",
-    s."Staff_UUID",
-    s."Staff_Name"
-   FROM (key01_calendar_date c
-     CROSS JOIN key03_staff_table s);
-
-Columns:
-  - Date (date)
-  - PublicHoliday (boolean)
-  - Weekday (integer)
-  - WeekEnd (boolean)
-  - StartOfMonth (date)
-  - EndOfMonth (date)
-  - Is_Range_for_Invoicing (boolean)
-  - Staff_UUID (uuid)
-  - Staff_Name (text)
-
-Row Count: 80,682
-
-================================================================================
-
-View: 4_Timesheet_Table
---------------------------------------------------------------------------------
-
-Definition:
- SELECT (((t."JobID")::text || t."TaskUUID") || t."StaffMemberUUID") AS "Job_Task_Staff_ID",
-    t."UUID" AS "Timesheet_UUID",
-    t."JobID" AS "Job_ID",
-    t."TaskUUID" AS "Task_ID",
-    t."StaffMemberUUID" AS "Staff_ID",
-    s."Staff_Name",
-    t."Note" AS "Timesheet_Notes",
-    t."Billable",
-    t."InvoiceUUID" AS "Invoice_ID",
-    t."InvoiceTaskUUID" AS "Invoice_Task_ID",
-    t."Date",
-    t."Minutes" AS "Recorded_Minutes"
-   FROM ("time" t
-     LEFT JOIN key03_staff_table s ON ((s."Staff_UUID" = t."StaffMemberUUID")))
-  WHERE ((t."Date" >= '2020-01-01 00:00:00'::timestamp without time zone) AND (s."Staff_Name" IS NOT NULL));
-
-Columns:
-  - Job_Task_Staff_ID (text)
-  - Timesheet_UUID (uuid)
-  - Job_ID (character varying)
-  - Task_ID (uuid)
-  - Staff_ID (uuid)
-  - Staff_Name (text)
-  - Timesheet_Notes (text)
-  - Billable (boolean)
-  - Invoice_ID (uuid)
-  - Invoice_Task_ID (uuid)
-  - Date (timestamp without time zone)
-  - Recorded_Minutes (integer)
-
-Row Count: 58,292
-
-================================================================================
-
 View: budget_tracker
 --------------------------------------------------------------------------------
 
@@ -2428,69 +2258,21 @@ Row Count: 2,373
 
 ================================================================================
 
-View: key02_job_task_staff_id
---------------------------------------------------------------------------------
-
-Definition:
- SELECT DISTINCT combined."Job_Task_Staff_ID",
-    combined."Job_ID",
-    combined."Staff_Name",
-    jt."Task_Name",
-    j."Client_Name",
-    j."Job_Name",
-        CASE
-            WHEN ((jt."Task_Name" ~~* '%Holiday%'::text) OR (jt."Task_Name" ~~* '%Other leave%'::text) OR (jt."Task_Name" ~~* '%Sick leave%'::text)) THEN 'Leave Tasks'::text
-            WHEN ((jt."Task_Name" ~~* '%Admin - Non-billable%'::text) OR (j."Client_Name" = 'Dinniss Admin'::text)) THEN 'Admin Tasks'::text
-            ELSE 'Billable Tasks'::text
-        END AS "Task_Category",
-    COALESCE(( SELECT kt."Name"
-           FROM key05_task_type kt
-          WHERE (jt."Task_Name" ~~* (('%'::text || kt."Name") || '%'::text))
-         LIMIT 1), jt."Task_Name") AS "Task_Type1"
-   FROM ((( SELECT "1_Job_Task_Details_Table"."Job_Task_Staff_ID",
-            "1_Job_Task_Details_Table"."Job_ID",
-            "1_Job_Task_Details_Table"."Task_UUID" AS "Task_ID",
-            "1_Job_Task_Details_Table"."Staff_UUID",
-            "1_Job_Task_Details_Table"."Staff_Name"
-           FROM "1_Job_Task_Details_Table"
-        UNION ALL
-         SELECT keys_time."Job_Task_Staff_ID",
-            keys_time."Job_ID",
-            keys_time."Task_ID",
-            keys_time."Staff_UUID",
-            keys_time."Staff_Name"
-           FROM keys_time) combined
-     LEFT JOIN "1_Job_Task_Details_Table" jt ON ((jt."Job_Task_Staff_ID" = combined."Job_Task_Staff_ID")))
-     LEFT JOIN key06_job_table j ON (((j."Job_ID")::text = (combined."Job_ID")::text)));
-
-Columns:
-  - Job_Task_Staff_ID (text)
-  - Job_ID (character varying)
-  - Staff_Name (text)
-  - Task_Name (text)
-  - Client_Name (text)
-  - Job_Name (text)
-  - Task_Category (text)
-  - Task_Type1 (text)
-
-Row Count: 27,061
-
-================================================================================
-
 View: key03_staff_table
 --------------------------------------------------------------------------------
 
 Definition:
- SELECT DISTINCT "StaffID" AS "Staff_UUID",
+ SELECT DISTINCT ON ("Name") "StaffID" AS "Staff_UUID",
     "Name" AS "Staff_Name"
    FROM jobtaskassignee
-  WHERE (("Name" <> ALL (ARRAY['Anna Williams'::text, 'Caroline Dinniss'::text, 'Conor Cameron'::text, 'Conor O''Brien'::text, 'Dinniss'::text, 'Sahar Sedaghat'::text, 'The OLD - Dani Millar'::text, 'Vicky Jones'::text])) AND ("Name" IS NOT NULL));
+  WHERE (("Name" <> ALL (ARRAY['Anna Williams'::text, 'Caroline Dinniss'::text, 'Conor Cameron'::text, 'Conor O''Brien'::text, 'Dinniss'::text, 'Sahar Sedaghat'::text, 'The OLD - Dani Millar'::text, 'Vicky Jones'::text])) AND ("Name" IS NOT NULL))
+  ORDER BY "Name";
 
 Columns:
   - Staff_UUID (uuid)
   - Staff_Name (text)
 
-Row Count: 34
+Row Count: 30
 
 ================================================================================
 
@@ -2498,11 +2280,23 @@ View: key04_task_name
 --------------------------------------------------------------------------------
 
 Definition:
- SELECT DISTINCT "Name" AS "Task_Name"
-   FROM jobtask;
+ SELECT "Task_Name",
+    "Task_Type1",
+        CASE
+            WHEN ("Task_Name" = 'Online content creation'::text) THEN "Task_Name"
+            WHEN ("Task_Name" = 'Online content management'::text) THEN "Task_Name"
+            ELSE "Task_Type1"
+        END AS "Task_Type"
+   FROM ( SELECT DISTINCT jt."Name" AS "Task_Name",
+            COALESCE(NULLIF(TRIM(BOTH FROM ( SELECT string_agg(kt."Name", ' '::text) AS string_agg
+                   FROM key05_task_type kt
+                  WHERE (jt."Name" ~~* (('%'::text || kt."Name") || '%'::text)))), ''::text), jt."Name") AS "Task_Type1"
+           FROM jobtask jt) sub;
 
 Columns:
   - Task_Name (text)
+  - Task_Type1 (text)
+  - Task_Type (text)
 
 Row Count: 1,359
 
@@ -2619,7 +2413,7 @@ Columns:
   - Staff_Name (text)
   - Staff_UUID (uuid)
 
-Row Count: 58,292
+Row Count: 259,164
 
 ================================================================================
 
@@ -3473,8 +3267,750 @@ Row Count: 56
 
 
 ================================================================================
-3. INDEXES
+3. MATERIALIZED VIEWS
 ================================================================================
+
+
+Materialized View: 1_Job_Task_Details_Table
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT b."Job_Task_Staff_ID",
+    b."Job_ID",
+    b."Task_UUID",
+    b."Task_Name",
+    b."EstimatedMinutes",
+    b."ActualMinutes",
+    b."Task_Billable",
+    b."Task_Completed",
+    b."Staff_UUID",
+    b."Staff_Name",
+    b."Client_Name",
+    b."StartDate",
+    b."DueDate",
+    b."Task_Allocated_Mins",
+    b."Task_Type",
+    b."StartDateAdjusted",
+    b."DueDateAdjusted",
+    b."Is_Task_a_Leave",
+    cal_counts.wdb_cnt AS "Workable_Days_Between_Task",
+    (cal_counts.wdb_cnt * 8) AS "Workable_Hrs_Between_Task",
+    ((b."Task_Allocated_Mins")::double precision / (NULLIF(cal_counts.wdb_cnt, 0))::double precision) AS "Initial_Avg_Mins_perWorkDay",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN cal_counts.tlh_hrs
+            ELSE NULL::double precision
+        END AS "Total_Leave_Hrs_between_Workable_Days",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN ((((cal_counts.wdb_cnt * 8))::double precision - COALESCE(cal_counts.tlh_hrs, (0)::double precision)) / (8.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Rev_Workable_Days_Between_Task",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN ((b."Task_Allocated_Mins")::double precision / NULLIF(((((cal_counts.wdb_cnt * 8))::double precision - COALESCE(cal_counts.tlh_hrs, (0)::double precision)) / (8.0)::double precision), (0)::double precision))
+            ELSE NULL::double precision
+        END AS "Avg_Mins_perWorkDay_WITHOUT_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN (((cal_counts.ttl_cnt)::double precision * (b."Task_Allocated_Mins")::double precision) / NULLIF(((((cal_counts.wdb_cnt * 8))::double precision - COALESCE(cal_counts.tlh_hrs, (0)::double precision)) / (8.0)::double precision), (0)::double precision))
+            ELSE NULL::double precision
+        END AS "Total_Task_Mins_WorkDays_WITHOUT_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN ((b."Task_Allocated_Mins")::double precision - (((cal_counts.ttl_cnt)::double precision * (b."Task_Allocated_Mins")::double precision) / NULLIF(((((cal_counts.wdb_cnt * 8))::double precision - COALESCE(cal_counts.tlh_hrs, (0)::double precision)) / (8.0)::double precision), (0)::double precision)))
+            ELSE NULL::double precision
+        END AS "Remaining_Allocated_Task_Mins",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN cal_counts.wdl_cnt
+            ELSE NULL::bigint
+        END AS "WorkDays_WITH_Leaves_between_Task",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN (((b."Task_Allocated_Mins")::double precision - (((cal_counts.ttl_cnt)::double precision * (b."Task_Allocated_Mins")::double precision) / NULLIF(((((cal_counts.wdb_cnt * 8))::double precision - COALESCE(cal_counts.tlh_hrs, (0)::double precision)) / (8.0)::double precision), (0)::double precision))) / (NULLIF(cal_counts.wdl_cnt, 0))::double precision)
+            ELSE NULL::double precision
+        END AS "Avg_Mins_perWorkDay_WITH_Leaves",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN tmt.recorded_mins
+            ELSE NULL::bigint
+        END AS "Task_Mins_Worked_Till_Date",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN ((tmt.recorded_mins)::numeric > b."Task_Allocated_Mins")
+            ELSE NULL::boolean
+        END AS "IS_Task_Mins_Worked_>_Allocated",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN GREATEST((0)::numeric, (b."Task_Allocated_Mins" - (tmt.recorded_mins)::numeric))
+            ELSE NULL::numeric
+        END AS "Task_Mins_Remain_until_Due",
+        CASE
+            WHEN ((NOT b."Is_Task_a_Leave") AND (NOT ((b."Task_Name" ~~* '%Admin - Non-billable%'::text) OR (b."Client_Name" = 'Dinniss Admin'::text)))) THEN (((cal_counts.arwd_cnt)::double precision * ((b."Task_Allocated_Mins")::double precision - (((cal_counts.ttl_cnt)::double precision * (b."Task_Allocated_Mins")::double precision) / NULLIF(((((cal_counts.wdb_cnt * 8))::double precision - COALESCE(cal_counts.tlh_hrs, (0)::double precision)) / (8.0)::double precision), (0)::double precision)))) / (NULLIF(cal_counts.wdl_cnt, 0))::double precision)
+            ELSE NULL::double precision
+        END AS "Allo_Mins_during_Remaining_workDays_WITH_leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN rmn.remain_mins
+            ELSE NULL::double precision
+        END AS "Remain_Mins_Allo_to_Remain_WorkDays_WITHOUT_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN cal_counts.rttl_cnt
+            ELSE NULL::bigint
+        END AS "Remain_WorkDays_WITHOUT_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN (rmn.remain_mins / (NULLIF(cal_counts.rttl_cnt, 0))::double precision)
+            ELSE NULL::double precision
+        END AS "Avg_Remain_Mins_perRemainWorkday_WITHOUT_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN
+            CASE
+                WHEN (rmn.remain_mins > (0)::double precision) THEN ((cal_counts.rttl_cnt >= 1) AND ((rmn.remain_mins / (NULLIF(cal_counts.rttl_cnt, 0))::double precision) <= (480)::double precision))
+                ELSE true
+            END
+            ELSE NULL::boolean
+        END AS "Is_Task_WITHIN_Allo_Time_IMP",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN (b."DueDateAdjusted" < CURRENT_DATE)
+            ELSE NULL::boolean
+        END AS "Is_Task_DueDate_Over",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN
+            CASE
+                WHEN (((tmt.recorded_mins)::numeric > b."Task_Allocated_Mins") OR (b."DueDateAdjusted" < CURRENT_DATE)) THEN b."Task_Allocated_Mins"
+                ELSE (tmt.recorded_mins)::numeric
+            END
+            ELSE NULL::numeric
+        END AS "Task_Mins_Worked_Adjusted",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN cal_counts.pwdl_cnt
+            ELSE NULL::bigint
+        END AS "Prior_WorkDays_WITH_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN cal_counts.pttl_cnt
+            ELSE NULL::bigint
+        END AS "Prior_WorkDays_WITHOUT_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN pam.allo_mins
+            ELSE NULL::double precision
+        END AS "Allo_Mins_during_PriorWorkDays_WITH_leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN (pam.allo_mins > (twa.adj_mins)::double precision)
+            ELSE NULL::boolean
+        END AS "Is_Mins_PriorWorkDays_WITH_Leave_>_Task_Mins_Worked",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN
+            CASE
+                WHEN (pam.allo_mins > (twa.adj_mins)::double precision) THEN (twa.adj_mins)::double precision
+                ELSE pam.allo_mins
+            END
+            ELSE NULL::double precision
+        END AS "Adj_Worked_Mins_PriorWorkDays_WITH_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN ((twa.adj_mins)::double precision -
+            CASE
+                WHEN (pam.allo_mins > (twa.adj_mins)::double precision) THEN (twa.adj_mins)::double precision
+                ELSE pam.allo_mins
+            END)
+            ELSE NULL::double precision
+        END AS "Adj_Worked_Mins_PriorWorkDays_WITHOUT_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN (
+            CASE
+                WHEN (pam.allo_mins > (twa.adj_mins)::double precision) THEN (twa.adj_mins)::double precision
+                ELSE pam.allo_mins
+            END / (NULLIF(cal_counts.pwdl_cnt, 0))::double precision)
+            ELSE NULL::double precision
+        END AS "Avg_Worked_Mins_perPriorDays_WITH_Leave",
+        CASE
+            WHEN (NOT b."Is_Task_a_Leave") THEN (((twa.adj_mins)::double precision -
+            CASE
+                WHEN (pam.allo_mins > (twa.adj_mins)::double precision) THEN (twa.adj_mins)::double precision
+                ELSE pam.allo_mins
+            END) / (NULLIF(cal_counts.pttl_cnt, 0))::double precision)
+            ELSE NULL::double precision
+        END AS "Avg_Worked_Mins_perPriorDays_WITHOUT_Leave"
+   FROM (((((( SELECT (((jt."JobDetailsRemoteID")::text || (jt."UUID")::text) || (jta."UUID")::text) AS "Job_Task_Staff_ID",
+            jt."JobDetailsRemoteID" AS "Job_ID",
+            jt."UUID" AS "Task_UUID",
+            jt."Name" AS "Task_Name",
+            jt."EstimatedMinutes",
+            jt."ActualMinutes",
+            jt."Billable" AS "Task_Billable",
+            jt."Completed" AS "Task_Completed",
+            jta."UUID" AS "Staff_UUID",
+            jta."Name" AS "Staff_Name",
+            cd."Name" AS "Client_Name",
+            jt."StartDate",
+            jt."DueDate",
+            jta."AllocatedMinutes" AS "Task_Allocated_Mins",
+            ktn."Task_Type",
+            COALESCE(jt."StartDate", jd."StartDate") AS "StartDateAdjusted",
+            COALESCE(jt."DueDate",
+                CASE
+                    WHEN (jd."CompletedDate" IS NULL) THEN jd."DueDate"
+                    ELSE LEAST(jd."CompletedDate", jd."DueDate")
+                END) AS "DueDateAdjusted",
+            ((jt."Name" ~~* '%Holiday%'::text) OR (jt."Name" ~~* '%Sick leave%'::text) OR (jt."Name" ~~* '%Other leave%'::text)) AS "Is_Task_a_Leave"
+           FROM ((((jobtask jt
+             LEFT JOIN jobtaskassignee jta ON ((jta."JobTaskID" = (jt."RemoteID")::uuid)))
+             LEFT JOIN jobdetails jd ON (((jd."RemoteID")::text = (jt."JobDetailsRemoteID")::text)))
+             LEFT JOIN clientdetails cd ON ((cd."UUID" = jd."ClientUUID")))
+             LEFT JOIN key04_task_name ktn ON ((ktn."Task_Name" = jt."Name")))
+          WHERE ((jt."IsDeleted" = false) AND (jta."Name" IS NOT NULL) AND (jta."Name" <> ALL (ARRAY['Anna Williams'::text, 'Conor Cameron'::text, 'Conor O''Brien'::text, 'Dinniss'::text, 'Sahar Sedaghat'::text, 'The OLD - Dani Millar'::text])))) b
+     CROSS JOIN LATERAL ( SELECT count(*) FILTER (WHERE (NOT COALESCE(lv.is_full_day, false))) AS wdb_cnt,
+            COALESCE(sum(lv.partial_leave_hrs_per_day) FILTER (WHERE (NOT COALESCE(lv.is_full_day, false))), (0)::double precision) AS tlh_hrs,
+            count(*) FILTER (WHERE ((NOT COALESCE(lv.has_partial_leave, false)) AND (NOT COALESCE(lv.is_full_day, false)) AND (NOT ((b."Task_Name" = 'Admin - Non-billable'::text) AND (cal."Date" >= '2021-02-01'::date))))) AS ttl_cnt,
+            count(*) FILTER (WHERE (COALESCE(lv.has_partial_leave, false) AND (NOT COALESCE(lv.is_full_day, false)))) AS wdl_cnt,
+            count(*) FILTER (WHERE (COALESCE(lv.has_partial_leave, false) AND (NOT COALESCE(lv.is_full_day, false)) AND (cal."Date" >= CURRENT_DATE))) AS arwd_cnt,
+            count(*) FILTER (WHERE ((NOT COALESCE(lv.has_partial_leave, false)) AND (NOT COALESCE(lv.is_full_day, false)) AND (cal."Date" >= CURRENT_DATE) AND (NOT ((b."Task_Name" = 'Admin - Non-billable'::text) AND (cal."Date" >= '2021-02-01'::date))))) AS rttl_cnt,
+            count(*) FILTER (WHERE (COALESCE(lv.has_partial_leave, false) AND (NOT COALESCE(lv.is_full_day, false)) AND (cal."Date" <= CURRENT_DATE))) AS pwdl_cnt,
+            count(*) FILTER (WHERE ((NOT COALESCE(lv.has_partial_leave, false)) AND (NOT COALESCE(lv.is_full_day, false)) AND (cal."Date" <= CURRENT_DATE) AND (NOT ((b."Task_Name" = 'Admin - Non-billable'::text) AND (cal."Date" >= '2021-02-01'::date))))) AS pttl_cnt
+           FROM (key01_calendar_date cal
+             LEFT JOIN leave_status_by_staff_date lv ON (((lv.staff_name = b."Staff_Name") AND (lv."Date" = cal."Date"))))
+          WHERE ((cal."Date" >= b."StartDateAdjusted") AND (cal."Date" <= b."DueDateAdjusted") AND (cal."WeekEnd" = false) AND (cal."PublicHoliday" = false) AND (EXISTS ( SELECT 1
+                   FROM excel_workable_days ewd
+                  WHERE ((ewd.staffname = b."Staff_Name") AND (ewd.day_of_week = cal."Weekday") AND (ewd.working_day = true)))))) cal_counts)
+     CROSS JOIN LATERAL ( SELECT COALESCE(sum(t."Minutes"), (0)::bigint) AS recorded_mins
+           FROM "time" t
+          WHERE (((t."JobID")::text = (b."Job_ID")::text) AND ((t."TaskUUID")::text = (b."Task_UUID")::text) AND ((t."StaffMemberUUID")::text = (b."Staff_UUID")::text) AND (t."Date" >= '2020-01-01 00:00:00'::timestamp without time zone))) tmt)
+     CROSS JOIN LATERAL ( SELECT ((GREATEST((0)::numeric, (b."Task_Allocated_Mins" - (tmt.recorded_mins)::numeric)))::double precision -
+                CASE
+                    WHEN (NOT ((b."Task_Name" ~~* '%Admin - Non-billable%'::text) OR (b."Client_Name" = 'Dinniss Admin'::text))) THEN COALESCE((((cal_counts.arwd_cnt)::double precision * ((b."Task_Allocated_Mins")::double precision - (((cal_counts.ttl_cnt)::double precision * (b."Task_Allocated_Mins")::double precision) / NULLIF(((((cal_counts.wdb_cnt * 8))::double precision - COALESCE(cal_counts.tlh_hrs, (0)::double precision)) / (8.0)::double precision), (0)::double precision)))) / (NULLIF(cal_counts.wdl_cnt, 0))::double precision), (0)::double precision)
+                    ELSE (0)::double precision
+                END) AS remain_mins) rmn)
+     CROSS JOIN LATERAL ( SELECT
+                CASE
+                    WHEN (((tmt.recorded_mins)::numeric > b."Task_Allocated_Mins") OR (b."DueDateAdjusted" < CURRENT_DATE)) THEN b."Task_Allocated_Mins"
+                    ELSE (tmt.recorded_mins)::numeric
+                END AS adj_mins) twa)
+     CROSS JOIN LATERAL ( SELECT
+                CASE
+                    WHEN (NOT ((b."Task_Name" ~~* '%Admin - Non-billable%'::text) OR (b."Client_Name" = 'Dinniss Admin'::text))) THEN (((cal_counts.pwdl_cnt)::double precision * ((b."Task_Allocated_Mins")::double precision - (((cal_counts.ttl_cnt)::double precision * (b."Task_Allocated_Mins")::double precision) / NULLIF(((((cal_counts.wdb_cnt * 8))::double precision - COALESCE(cal_counts.tlh_hrs, (0)::double precision)) / (8.0)::double precision), (0)::double precision)))) / (NULLIF(cal_counts.wdl_cnt, 0))::double precision)
+                    ELSE NULL::double precision
+                END AS allo_mins) pam);
+
+Columns:
+
+Row Count: 26,923
+
+================================================================================
+
+Materialized View: 2_Staff_Task_Allocation_byDay
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT c."Date",
+    c."PublicHoliday",
+    c."Weekday",
+    c."WeekEnd",
+    c."StartOfMonth",
+    c."EndOfMonth",
+    c."Is_Range_for_Invoicing",
+    k."Job_Task_Staff_ID",
+    k."Job_ID",
+    k."Staff_Name",
+    k."Task_Name",
+    k."Client_Name",
+    k."Job_Name",
+    k."Task_Category",
+    k."Task_Type1",
+        CASE
+            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text)) THEN false
+            ELSE true
+        END AS "Is_Client",
+        CASE
+            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Task_Type1" = 'Coaching'::text)) THEN false
+            ELSE true
+        END AS "Is_Billable",
+        CASE
+            WHEN ((k."Client_Name" = 'Dinniss Admin'::text) OR (k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Task_Type1" = 'Coaching'::text)) THEN 'Not Billable'::text
+            ELSE 'Billable'::text
+        END AS "Billable_Selector",
+    jt."StartDateAdjusted",
+    jt."DueDateAdjusted",
+    ((NOT c."WeekEnd") AND (NOT c."PublicHoliday")) AS "Is_Workable_Day",
+    ((c."Date" >= jt."StartDateAdjusted") AND (c."Date" <= jt."DueDateAdjusted")) AS "Is_Date_Between_Task_Days",
+    (c."Date" >= CURRENT_DATE) AS "Is_Date_between_Today&Due",
+    (c."Date" < CURRENT_DATE) AS "Is_Date_between_Start&Today",
+    COALESCE(jt."Is_Task_a_Leave", false) AS "Is_Task_a_Leave",
+    COALESCE(lv.is_full_day, false) AS "Is_Full_Day_Leave",
+    ((k."Task_Name" = 'Admin - Non-billable'::text) AND (c."Date" >= '2021-02-01'::date)) AS "Admin_Task_To_Be_Removed",
+    COALESCE(wkd.working_day, false) AS "Is_Staff_Workable_DayOfWeek",
+    COALESCE(lv.has_partial_leave, false) AS "Is_Day_With_a_Leave",
+        CASE
+            WHEN ((NOT c."WeekEnd") AND (NOT c."PublicHoliday") AND (c."Date" >= jt."StartDateAdjusted") AND (c."Date" <= jt."DueDateAdjusted") AND COALESCE(wkd.working_day, false) AND (NOT COALESCE(lv.is_full_day, false)) AND (NOT ((k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Client_Name" = 'Dinniss Admin'::text)))) THEN (jt."Initial_Avg_Mins_perWorkDay" / (60.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Initial_Allo_Hrs_perWorkDay_KPI01",
+        CASE
+            WHEN ((NOT c."WeekEnd") AND (NOT c."PublicHoliday") AND (c."Date" >= jt."StartDateAdjusted") AND (c."Date" <= jt."DueDateAdjusted") AND COALESCE(wkd.working_day, false) AND (NOT COALESCE(lv.has_partial_leave, false)) AND (NOT COALESCE(jt."Is_Task_a_Leave", false)) AND (NOT COALESCE(lv.is_full_day, false)) AND (NOT ((k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Client_Name" = 'Dinniss Admin'::text)))) THEN (jt."Avg_Mins_perWorkDay_WITHOUT_Leave" / (60.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Allo_Hrs_perWorkday_WITHOUT_Leave_KPI02",
+        CASE
+            WHEN ((NOT c."WeekEnd") AND (NOT c."PublicHoliday") AND (c."Date" >= jt."StartDateAdjusted") AND (c."Date" <= jt."DueDateAdjusted") AND COALESCE(wkd.working_day, false) AND COALESCE(lv.has_partial_leave, false) AND (NOT COALESCE(jt."Is_Task_a_Leave", false)) AND (NOT COALESCE(lv.is_full_day, false)) AND (NOT ((k."Task_Type1" = 'Admin - Non-billable'::text) OR (k."Client_Name" = 'Dinniss Admin'::text)))) THEN (jt."Avg_Mins_perWorkDay_WITH_Leaves" / (60.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Allo_Hrs_perWorkday_WITH_Leave_KPI03",
+        CASE
+            WHEN ((c."Date" >= CURRENT_DATE) AND (k."Task_Category" = 'Billable Tasks'::text) AND (NOT c."WeekEnd") AND (NOT c."PublicHoliday") AND COALESCE(wkd.working_day, false) AND COALESCE(lv.has_partial_leave, false) AND (NOT COALESCE(jt."Is_Task_a_Leave", false)) AND (NOT COALESCE(lv.is_full_day, false))) THEN (jt."Avg_Mins_perWorkDay_WITH_Leaves" / (60.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Allo_Hrs_perRemainingWorkDay_WITH_LEAVE_KPI04",
+        CASE
+            WHEN ((c."Date" >= CURRENT_DATE) AND (k."Task_Category" = 'Billable Tasks'::text) AND (NOT c."WeekEnd") AND (NOT c."PublicHoliday") AND COALESCE(wkd.working_day, false) AND (NOT COALESCE(lv.has_partial_leave, false)) AND (NOT COALESCE(jt."Is_Task_a_Leave", false)) AND (NOT COALESCE(lv.is_full_day, false))) THEN (jt."Avg_Remain_Mins_perRemainWorkday_WITHOUT_Leave" / (60.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Allo_Hrs_perRemainingWorkDay_WITHOUT_LEAVE_KPI05",
+        CASE
+            WHEN ((c."Date" < CURRENT_DATE) AND (k."Task_Category" = 'Billable Tasks'::text) AND (NOT c."WeekEnd") AND (NOT c."PublicHoliday") AND COALESCE(wkd.working_day, false) AND COALESCE(lv.has_partial_leave, false) AND (NOT COALESCE(jt."Is_Task_a_Leave", false)) AND (NOT COALESCE(lv.is_full_day, false))) THEN (jt."Avg_Mins_perWorkDay_WITH_Leaves" / (60.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Initial_Allo_Hrs_perPriorWorkDays_WITH_LEAVE",
+        CASE
+            WHEN ((c."Date" < CURRENT_DATE) AND (k."Task_Category" = 'Billable Tasks'::text) AND (NOT c."WeekEnd") AND (NOT c."PublicHoliday") AND COALESCE(wkd.working_day, false) AND COALESCE(lv.has_partial_leave, false) AND (NOT COALESCE(jt."Is_Task_a_Leave", false)) AND (NOT COALESCE(lv.is_full_day, false))) THEN (jt."Avg_Worked_Mins_perPriorDays_WITH_Leave" / (60.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Act_Allo_Hrs_perPriorWorkDays_WITH_LEAVE_KPI06",
+        CASE
+            WHEN ((c."Date" < CURRENT_DATE) AND (k."Task_Category" = 'Billable Tasks'::text) AND (NOT c."WeekEnd") AND (NOT c."PublicHoliday") AND COALESCE(wkd.working_day, false) AND (NOT COALESCE(lv.has_partial_leave, false)) AND (NOT COALESCE(jt."Is_Task_a_Leave", false)) AND (NOT COALESCE(lv.is_full_day, false))) THEN (jt."Avg_Worked_Mins_perPriorDays_WITHOUT_Leave" / (60.0)::double precision)
+            ELSE NULL::double precision
+        END AS "Act_Allo_Hrs_perPriorWorkDays_WITHOUT_LEAVE_KPI07",
+    jt."Is_Task_WITHIN_Allo_Time_IMP" AS "Is_Task_WITHIN_Allo_Time",
+    (COALESCE(j6."Job_State", ''::text) = 'Completed'::text) AS "Is_Job_Complete",
+    ts_task.recorded_hrs AS "Recorded_Task_Hours",
+    NULL::double precision AS "Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02",
+    NULL::double precision AS "Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03",
+    NULL::double precision AS "Allo_Hrs_perWorkDay_AdjLeaves_FIN01",
+    NULL::double precision AS "Allo_Hrs_perWorkableDay_Final_Output"
+   FROM ((((((key01_calendar_date c
+     CROSS JOIN key02_job_task_staff_id k)
+     LEFT JOIN "1_Job_Task_Details_Table" jt ON ((jt."Job_Task_Staff_ID" = k."Job_Task_Staff_ID")))
+     LEFT JOIN ( SELECT DISTINCT ON (excel_workable_days.staffname, excel_workable_days.day_of_week) excel_workable_days.staffname,
+            excel_workable_days.day_of_week,
+            excel_workable_days.working_day
+           FROM excel_workable_days
+          ORDER BY excel_workable_days.staffname, excel_workable_days.day_of_week) wkd ON (((wkd.staffname = k."Staff_Name") AND (wkd.day_of_week = c."Weekday"))))
+     LEFT JOIN leave_status_by_staff_date lv ON (((lv.staff_name = k."Staff_Name") AND (lv."Date" = c."Date"))))
+     LEFT JOIN ( SELECT DISTINCT ON (key06_job_table."Job_ID") key06_job_table."Job_ID",
+            key06_job_table."Job_State"
+           FROM key06_job_table
+          ORDER BY key06_job_table."Job_ID") j6 ON (((j6."Job_ID")::text = (k."Job_ID")::text)))
+     LEFT JOIN ( SELECT "4_Timesheet_Table"."Job_Task_Staff_ID",
+            ("4_Timesheet_Table"."Date")::date AS ts_date,
+            ((sum("4_Timesheet_Table"."Recorded_Minutes"))::numeric / 60.0) AS recorded_hrs
+           FROM "4_Timesheet_Table"
+          GROUP BY "4_Timesheet_Table"."Job_Task_Staff_ID", (("4_Timesheet_Table"."Date")::date)) ts_task ON (((ts_task."Job_Task_Staff_ID" = k."Job_Task_Staff_ID") AND (ts_task.ts_date = c."Date"))))
+  WHERE ((jt."StartDateAdjusted" IS NOT NULL) AND (c."Date" >= jt."StartDateAdjusted") AND (c."Date" <= jt."DueDateAdjusted"));
+
+Columns:
+
+Row Count: 752,682
+
+================================================================================
+
+Materialized View: 3_Staff_Performance_Table
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT c."Date",
+    c."PublicHoliday",
+    c."Weekday",
+    c."WeekEnd",
+    c."StartOfMonth",
+    c."EndOfMonth",
+    c."Is_Range_for_Invoicing",
+    s."Staff_UUID",
+    s."Staff_Name",
+        CASE
+            WHEN ((NOT c."PublicHoliday") AND (NOT c."WeekEnd")) THEN (NOT COALESCE(lv_spt.is_full_day, false))
+            ELSE NULL::boolean
+        END AS "Is_Workable_Day",
+    wd_lkp.working_day AS "Is_Staff_Workable_DayOfWeek",
+    COALESCE(adj_lkp.adjustmentfactor, (0)::double precision) AS "Adjustment_Factor_by_Month",
+    ((1 + (EXTRACT(week FROM c."Date"))::integer) - (EXTRACT(week FROM (date_trunc('month'::text, (c."Date")::timestamp with time zone))::date))::integer) AS "Week_Of_Month",
+    orh.val AS "Overall_Recordable_Hours",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN NULL::double precision
+            ELSE (- alloc_agg.hol_hrs)
+        END AS "Allocated_Holiday_Hours",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN NULL::double precision
+            ELSE (- alloc_agg.lvl_hrs)
+        END AS "Allocated_Other_Leave_Hours",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN (0)::double precision
+            ELSE ((orh.val + COALESCE((- alloc_agg.hol_hrs), (0)::double precision)) + COALESCE((- alloc_agg.lvl_hrs), (0)::double precision))
+        END AS "Non_Leave_Recordable_Hours",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN NULL::double precision
+            ELSE alloc_agg.adm_hrs
+        END AS "Allocated_Dinniss_Admin_Hours",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN (0)::double precision
+            ELSE (((orh.val + COALESCE((- alloc_agg.hol_hrs), (0)::double precision)) + COALESCE((- alloc_agg.lvl_hrs), (0)::double precision)) - COALESCE(alloc_agg.adm_hrs, (0)::double precision))
+        END AS "Available_Billable_Hours",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN NULL::double precision
+            ELSE alloc_agg.bil_orig_hrs
+        END AS "Allocated_Billable_Hours_Original",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN NULL::double precision
+            ELSE alloc_agg.bil_cap_hrs
+        END AS "Allocated_Billable_Hours_Capacity_Planning",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN (0)::double precision
+            ELSE ((((orh.val + COALESCE((- alloc_agg.hol_hrs), (0)::double precision)) + COALESCE((- alloc_agg.lvl_hrs), (0)::double precision)) - COALESCE(alloc_agg.adm_hrs, (0)::double precision)) * (itgt.target_billable_hours)::double precision)
+        END AS "Target_Billable_Hours",
+        CASE
+            WHEN (tnl.val <= (0)::double precision) THEN NULL::double precision
+            ELSE tnl.val
+        END AS "Target_Non_Leave_Hours",
+        CASE
+            WHEN (c."Date" >= CURRENT_DATE) THEN NULL::double precision
+            ELSE orh.val
+        END AS "M2Date_Overall_Recordable_Hours",
+        CASE
+            WHEN (c."Date" >= CURRENT_DATE) THEN NULL::double precision
+            WHEN (orh.val = (0)::double precision) THEN (0)::double precision
+            ELSE ((((orh.val + COALESCE((- alloc_agg.hol_hrs), (0)::double precision)) + COALESCE((- alloc_agg.lvl_hrs), (0)::double precision)) - COALESCE(alloc_agg.adm_hrs, (0)::double precision)) * (itgt.target_billable_hours)::double precision)
+        END AS "M2Date_Target_Billable_Hours",
+    (((- ts_agg.alr_mins))::numeric / 60.0) AS "Annual_Leave_Hours_Recorded",
+    (((- ts_agg.olr_mins))::numeric / 60.0) AS "Other_Leave_Hours_Recorded",
+    ((ts_agg.dar_mins)::numeric / 60.0) AS "Dinniss_Admin_Hours_Recorded",
+    ((ts_agg.bhr_mins)::numeric / 60.0) AS "Billable_Hours_Recorded",
+    (((((COALESCE(ts_agg.alr_mins, (0)::bigint))::numeric / 60.0) + ((COALESCE(ts_agg.olr_mins, (0)::bigint))::numeric / 60.0)) + ((COALESCE(ts_agg.bhr_mins, (0)::bigint))::numeric / 60.0)) + ((COALESCE(ts_agg.dar_mins, (0)::bigint))::numeric / 60.0)) AS "Overall_Hours_Recorded",
+    (ts_agg.bhi_mins / (60.0)::double precision) AS "Billable_Hours_Invoiced",
+    ((ts_agg.btu_mins)::numeric / 60.0) AS "Billable_Hours_To_Be_Invoiced",
+        CASE
+            WHEN (c."Date" >= CURRENT_DATE) THEN NULL::numeric
+            ELSE (((((COALESCE(ts_agg.alr_mins, (0)::bigint))::numeric / 60.0) + ((COALESCE(ts_agg.olr_mins, (0)::bigint))::numeric / 60.0)) + ((COALESCE(ts_agg.bhr_mins, (0)::bigint))::numeric / 60.0)) + ((COALESCE(ts_agg.dar_mins, (0)::bigint))::numeric / 60.0))
+        END AS "M2Date_Overall_Hours_Recorded",
+        CASE
+            WHEN (orh.val = (0)::double precision) THEN NULL::double precision
+            ELSE alloc_agg.anl_hrs
+        END AS "Allocated_Non_Leave_Hours_Capacity_Planning_CHECK_VARIABLES",
+    COALESCE(wd_lkp.adjustment_factor, (0)::double precision) AS "Adjustment_Factor_by_Day",
+    ((EXTRACT(year FROM c."Date") = EXTRACT(year FROM CURRENT_DATE)) AND (EXTRACT(month FROM c."Date") = EXTRACT(month FROM CURRENT_DATE))) AS "Is_Current_Month",
+        CASE
+            WHEN (trec.val <= (0)::double precision) THEN NULL::double precision
+            ELSE trec.val
+        END AS "Target_Hours_to_be_Recorded",
+        CASE
+            WHEN (talloc.val <= (0)::double precision) THEN NULL::double precision
+            ELSE talloc.val
+        END AS "Target_Hours_to_be_Allocated",
+        CASE
+            WHEN (tinv.val <= (0)::double precision) THEN NULL::double precision
+            ELSE tinv.val
+        END AS "Target_Hours_to_be_Invoiced",
+    NULLIF(pitgt.target_billable_hours, 0) AS "Target_Billable_Percent",
+    NULLIF(pitgt.target_recorded_2_billable_hrs, 0) AS "Target_Recordable Percent",
+    NULLIF(pitgt.target_allocated_2_billable_hrs, 0) AS "Target_Allocation_Percent",
+    NULLIF(pitgt.target_invoiced_2_billable_hrs, (0)::double precision) AS "Target_Invoice_Percent"
+   FROM (((((((((((((key01_calendar_date c
+     CROSS JOIN key03_staff_table s)
+     LEFT JOIN leave_status_by_staff_date lv_spt ON (((lv_spt.staff_name = s."Staff_Name") AND (lv_spt."Date" = c."Date"))))
+     LEFT JOIN ( SELECT DISTINCT ON (excel_workable_days.staffname, excel_workable_days.day_of_week) excel_workable_days.staffname,
+            excel_workable_days.day_of_week,
+            excel_workable_days.working_day,
+            excel_workable_days.adjustment_factor
+           FROM excel_workable_days
+          ORDER BY excel_workable_days.staffname, excel_workable_days.day_of_week) wd_lkp ON (((wd_lkp.staffname = s."Staff_Name") AND (wd_lkp.day_of_week = c."Weekday"))))
+     LEFT JOIN ( SELECT DISTINCT ON (excel_staff_adjustment_sheet.staffname, ((excel_staff_adjustment_sheet.month)::date)) excel_staff_adjustment_sheet.staffname,
+            (excel_staff_adjustment_sheet.month)::date AS month_date,
+            excel_staff_adjustment_sheet.adjustmentfactor
+           FROM excel_staff_adjustment_sheet
+          ORDER BY excel_staff_adjustment_sheet.staffname, ((excel_staff_adjustment_sheet.month)::date)) adj_lkp ON (((adj_lkp.staffname = s."Staff_Name") AND (adj_lkp.month_date = c."StartOfMonth"))))
+     CROSS JOIN LATERAL ( SELECT NULL::double precision AS val) orh)
+     LEFT JOIN ( SELECT a."Staff_Name",
+            a."Date",
+            sum(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE (a."Task_Name" ~~* '%Holiday%'::text)) AS hol_hrs,
+            sum(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE ((a."Task_Name" ~~* '%Sick leave%'::text) OR (a."Task_Name" ~~* '%Other leave%'::text))) AS lvl_hrs,
+            sum(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE (a."Task_Category" = 'Admin Tasks'::text)) AS adm_hrs,
+            sum(a."Allo_Hrs_perWorkDay_AdjLeaves_FIN01") FILTER (WHERE (a."Task_Category" = 'Billable Tasks'::text)) AS bil_orig_hrs,
+            sum(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE (a."Task_Category" = 'Billable Tasks'::text)) AS bil_cap_hrs,
+            sum(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (WHERE (a."Task_Category" = ANY (ARRAY['Admin Tasks'::text, 'Billable Tasks'::text]))) AS anl_hrs
+           FROM "2_Staff_Task_Allocation_byDay" a
+          GROUP BY a."Staff_Name", a."Date") alloc_agg ON (((alloc_agg."Staff_Name" = s."Staff_Name") AND (alloc_agg."Date" = c."Date"))))
+     LEFT JOIN ( SELECT DISTINCT ON (excel_incentive_targets.staff_name, ((excel_incentive_targets.month_year)::date)) excel_incentive_targets.staff_name,
+            (excel_incentive_targets.month_year)::date AS month_date,
+            excel_incentive_targets.target_billable_hours,
+            excel_incentive_targets.target_recorded_2_billable_hrs,
+            excel_incentive_targets.target_allocated_2_billable_hrs,
+            excel_incentive_targets.target_invoiced_2_billable_hrs
+           FROM excel_incentive_targets
+          ORDER BY excel_incentive_targets.staff_name, ((excel_incentive_targets.month_year)::date)) itgt ON (((itgt.staff_name = s."Staff_Name") AND (itgt.month_date = c."StartOfMonth"))))
+     CROSS JOIN LATERAL ( SELECT (
+                CASE
+                    WHEN (orh.val = (0)::double precision) THEN (0)::double precision
+                    ELSE ((orh.val + COALESCE((- alloc_agg.hol_hrs), (0)::double precision)) + COALESCE((- alloc_agg.lvl_hrs), (0)::double precision))
+                END * (itgt.target_billable_hours)::double precision) AS val) tnl)
+     CROSS JOIN LATERAL ( SELECT (
+                CASE
+                    WHEN (orh.val = (0)::double precision) THEN (0)::double precision
+                    ELSE ((((orh.val + COALESCE((- alloc_agg.hol_hrs), (0)::double precision)) + COALESCE((- alloc_agg.lvl_hrs), (0)::double precision)) - COALESCE(alloc_agg.adm_hrs, (0)::double precision)) * (itgt.target_billable_hours)::double precision)
+                END * (itgt.target_recorded_2_billable_hrs)::double precision) AS val) trec)
+     CROSS JOIN LATERAL ( SELECT (
+                CASE
+                    WHEN (orh.val = (0)::double precision) THEN (0)::double precision
+                    ELSE ((((orh.val + COALESCE((- alloc_agg.hol_hrs), (0)::double precision)) + COALESCE((- alloc_agg.lvl_hrs), (0)::double precision)) - COALESCE(alloc_agg.adm_hrs, (0)::double precision)) * (itgt.target_billable_hours)::double precision)
+                END * (itgt.target_allocated_2_billable_hrs)::double precision) AS val) talloc)
+     CROSS JOIN LATERAL ( SELECT (
+                CASE
+                    WHEN (orh.val = (0)::double precision) THEN (0)::double precision
+                    ELSE ((((orh.val + COALESCE((- alloc_agg.hol_hrs), (0)::double precision)) + COALESCE((- alloc_agg.lvl_hrs), (0)::double precision)) - COALESCE(alloc_agg.adm_hrs, (0)::double precision)) * (itgt.target_billable_hours)::double precision)
+                END * itgt.target_invoiced_2_billable_hrs) AS val) tinv)
+     LEFT JOIN ( SELECT DISTINCT ON (excel_incentive_targets.staff_name, ((excel_incentive_targets.month_year)::date)) excel_incentive_targets.staff_name,
+            (excel_incentive_targets.month_year)::date AS month_date,
+            excel_incentive_targets.target_billable_hours,
+            excel_incentive_targets.target_recorded_2_billable_hrs,
+            excel_incentive_targets.target_allocated_2_billable_hrs,
+            excel_incentive_targets.target_invoiced_2_billable_hrs
+           FROM excel_incentive_targets
+          ORDER BY excel_incentive_targets.staff_name, ((excel_incentive_targets.month_year)::date)) pitgt ON (((pitgt.staff_name = s."Staff_Name") AND (pitgt.month_date = c."Date"))))
+     LEFT JOIN ( SELECT ts."Staff_Name",
+            (ts."Date")::date AS ts_date,
+            sum(ts."Recorded_Minutes") FILTER (WHERE (ts."Task_Name" ~~* '%Holiday%'::text)) AS alr_mins,
+            sum(ts."Recorded_Minutes") FILTER (WHERE ((ts."Task_Name" ~~* '%Sick leave%'::text) OR (ts."Task_Name" ~~* '%Other leave%'::text))) AS olr_mins,
+            sum(ts."Recorded_Minutes") FILTER (WHERE (ts."Task_Category" = 'Admin Tasks'::text)) AS dar_mins,
+            sum(ts."Recorded_Minutes") FILTER (WHERE (ts."Task_Category" = 'Billable Tasks'::text)) AS bhr_mins,
+            sum(ts."Invoiced_Minutes") FILTER (WHERE ((ts."Invoiced_Time" = 'Invoiced'::text) AND (ts."Task_Category" = 'Billable Tasks'::text))) AS bhi_mins,
+            sum(ts."Recorded_Minutes") FILTER (WHERE ((ts."Invoiced_Time" = 'Un-Invoiced'::text) AND (ts."Task_Category" = 'Billable Tasks'::text))) AS btu_mins
+           FROM "4_Timesheet_Table" ts
+          GROUP BY ts."Staff_Name", ((ts."Date")::date)) ts_agg ON (((ts_agg."Staff_Name" = s."Staff_Name") AND (ts_agg.ts_date = c."Date"))));
+
+Columns:
+
+Row Count: 71,190
+
+================================================================================
+
+Materialized View: 4_Timesheet_Table
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT row_number() OVER () AS row_id,
+    (((t."JobID")::text || t."TaskUUID") || t."StaffMemberUUID") AS "Job_Task_Staff_ID",
+    t."UUID" AS "Timesheet_UUID",
+    t."JobID" AS "Job_ID",
+    t."TaskUUID" AS "Task_ID",
+    t."StaffMemberUUID" AS "Staff_ID",
+    s."Staff_Name",
+    t."Note" AS "Timesheet_Notes",
+    t."Billable",
+    t."InvoiceUUID" AS "Invoice_ID",
+    t."InvoiceTaskUUID" AS "Invoice_Task_ID",
+    t."Date",
+    t."Minutes" AS "Recorded_Minutes",
+    COALESCE(jt_lkp."Task_Name", e_lkp.task) AS "Task_Name",
+    COALESCE(jt_lkp."Client_Name", e_lkp.client) AS "Client_Name",
+    COALESCE(jt_lkp."Task_Type", e_lkp.task) AS "Task_Type",
+    jt_lkp."Task_Completed",
+    ic.is_client AS "Is_Client",
+        CASE
+            WHEN ((t."InvoiceTaskUUID" IS NULL) AND ic.is_client) THEN 'Un-Invoiced'::text
+            WHEN (t."InvoiceTaskUUID" IS NULL) THEN 'Dinniss Time'::text
+            ELSE 'Invoiced'::text
+        END AS "Invoiced_Time",
+    (ic.is_client AND (COALESCE(jt_lkp."Task_Type", e_lkp.task) <> 'Coaching'::text)) AS "Is_Billable",
+        CASE
+            WHEN (ic.is_client AND (COALESCE(jt_lkp."Task_Type", e_lkp.task) <> 'Coaching'::text)) THEN 'Billable'::text
+            ELSE 'Not Billable'::text
+        END AS "Billable_Selector",
+        CASE
+            WHEN ((COALESCE(jt_lkp."Task_Name", e_lkp.task) ~~* '%Holiday%'::text) OR (COALESCE(jt_lkp."Task_Name", e_lkp.task) ~~* '%Other leave%'::text) OR (COALESCE(jt_lkp."Task_Name", e_lkp.task) ~~* '%Sick leave%'::text)) THEN 'Leave Tasks'::text
+            WHEN ((COALESCE(jt_lkp."Task_Name", e_lkp.task) ~~* '%Admin - Non-billable%'::text) OR (COALESCE(jt_lkp."Client_Name", e_lkp.client) = 'Dinniss Admin'::text)) THEN 'Admin Tasks'::text
+            ELSE 'Billable Tasks'::text
+        END AS "Task_Category",
+    it."InvoiceID" AS "Invoice_Number",
+    (date_trunc('month'::text, t."Date"))::date AS "Month_Time_Recorded",
+    (date_trunc('month'::text, inv."Date"))::date AS "Month_Time_Invoiced",
+    e_lkp.invoiced_mins AS "Invoiced_Minutes",
+    mto.val AS "Month_Invoiced_On",
+        CASE
+            WHEN ibt.is_billable_task THEN
+            CASE
+                WHEN ((t."InvoiceTaskUUID" IS NULL) AND ic.is_client) THEN '5_Un-Invoiced'::text
+                WHEN (mto.val = 1) THEN '1_Same Month'::text
+                WHEN (mto.val = 2) THEN '2_Following Month'::text
+                WHEN (mto.val = 3) THEN '3_Third Month'::text
+                ELSE '4_Fourth Month +'::text
+            END
+            ELSE NULL::text
+        END AS "Recorded_Hours_invoiced",
+    k2_lkp."Job_Name"
+   FROM ((((((((("time" t
+     LEFT JOIN key03_staff_table s ON ((s."Staff_UUID" = t."StaffMemberUUID")))
+     LEFT JOIN ( SELECT DISTINCT ON ("1_Job_Task_Details_Table"."Job_Task_Staff_ID") "1_Job_Task_Details_Table"."Job_Task_Staff_ID",
+            "1_Job_Task_Details_Table"."Task_Name",
+            "1_Job_Task_Details_Table"."Client_Name",
+            "1_Job_Task_Details_Table"."Task_Type",
+            "1_Job_Task_Details_Table"."Task_Completed"
+           FROM "1_Job_Task_Details_Table"
+          ORDER BY "1_Job_Task_Details_Table"."Job_Task_Staff_ID") jt_lkp ON ((jt_lkp."Job_Task_Staff_ID" = (((t."JobID")::text || t."TaskUUID") || t."StaffMemberUUID"))))
+     LEFT JOIN ( SELECT DISTINCT ON (excel_recorded_invoiced_hours.timesheet_uuid) excel_recorded_invoiced_hours.timesheet_uuid,
+            excel_recorded_invoiced_hours.task,
+            excel_recorded_invoiced_hours.client,
+            excel_recorded_invoiced_hours.invoiced_mins
+           FROM excel_recorded_invoiced_hours
+          ORDER BY excel_recorded_invoiced_hours.timesheet_uuid) e_lkp ON ((e_lkp.timesheet_uuid = (t."UUID")::text)))
+     CROSS JOIN LATERAL ( SELECT (NOT ((COALESCE(jt_lkp."Client_Name", e_lkp.client) = 'Dinniss Admin'::text) OR (COALESCE(jt_lkp."Task_Type", e_lkp.task) = 'Admin - Non-billable'::text))) AS is_client) ic)
+     CROSS JOIN LATERAL ( SELECT (NOT ((COALESCE(jt_lkp."Task_Name", e_lkp.task) ~~* '%Holiday%'::text) OR (COALESCE(jt_lkp."Task_Name", e_lkp.task) ~~* '%Other leave%'::text) OR (COALESCE(jt_lkp."Task_Name", e_lkp.task) ~~* '%Sick leave%'::text) OR (COALESCE(jt_lkp."Task_Name", e_lkp.task) ~~* '%Admin - Non-billable%'::text) OR (COALESCE(jt_lkp."Client_Name", e_lkp.client) = 'Dinniss Admin'::text))) AS is_billable_task) ibt)
+     LEFT JOIN invoicetask it ON (((it."UUID" = t."InvoiceTaskUUID") AND (it."IsDeleted" = false))))
+     LEFT JOIN invoice inv ON ((((inv."ID")::text = (it."InvoiceID")::text) AND (inv."IsDeleted" = false))))
+     CROSS JOIN LATERAL ( SELECT
+                CASE
+                    WHEN (it."InvoiceID" IS NULL) THEN NULL::integer
+                    ELSE
+                    CASE
+                        WHEN ((((((EXTRACT(year FROM (date_trunc('month'::text, inv."Date"))::date) - EXTRACT(year FROM (date_trunc('month'::text, t."Date"))::date)) * (12)::numeric) + EXTRACT(month FROM (date_trunc('month'::text, inv."Date"))::date)) - EXTRACT(month FROM (date_trunc('month'::text, t."Date"))::date)))::integer = '-1'::integer) THEN 1
+                        ELSE ((((((EXTRACT(year FROM (date_trunc('month'::text, inv."Date"))::date) - EXTRACT(year FROM (date_trunc('month'::text, t."Date"))::date)) * (12)::numeric) + EXTRACT(month FROM (date_trunc('month'::text, inv."Date"))::date)) - EXTRACT(month FROM (date_trunc('month'::text, t."Date"))::date)))::integer + 1)
+                    END
+                END AS val) mto)
+     LEFT JOIN key06_job_table k2_lkp ON (((k2_lkp."Job_ID")::text = (t."JobID")::text)))
+  WHERE ((t."Date" >= '2020-01-01 00:00:00'::timestamp without time zone) AND (s."Staff_Name" IS NOT NULL));
+
+Columns:
+
+Row Count: 259,164
+
+================================================================================
+
+Materialized View: key02_job_task_staff_id
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT DISTINCT combined."Job_Task_Staff_ID",
+    combined."Job_ID",
+    combined."Staff_Name",
+    jt."Task_Name",
+    j."Client_Name",
+    j."Job_Name",
+        CASE
+            WHEN ((jt."Task_Name" ~~* '%Holiday%'::text) OR (jt."Task_Name" ~~* '%Other leave%'::text) OR (jt."Task_Name" ~~* '%Sick leave%'::text)) THEN 'Leave Tasks'::text
+            WHEN ((jt."Task_Name" ~~* '%Admin - Non-billable%'::text) OR (j."Client_Name" = 'Dinniss Admin'::text)) THEN 'Admin Tasks'::text
+            ELSE 'Billable Tasks'::text
+        END AS "Task_Category",
+    COALESCE(( SELECT kt."Name"
+           FROM key05_task_type kt
+          WHERE (jt."Task_Name" ~~* (('%'::text || kt."Name") || '%'::text))
+         LIMIT 1), jt."Task_Name") AS "Task_Type1"
+   FROM ((( SELECT "1_Job_Task_Details_Table"."Job_Task_Staff_ID",
+            "1_Job_Task_Details_Table"."Job_ID",
+            "1_Job_Task_Details_Table"."Task_UUID" AS "Task_ID",
+            "1_Job_Task_Details_Table"."Staff_UUID",
+            "1_Job_Task_Details_Table"."Staff_Name"
+           FROM "1_Job_Task_Details_Table"
+        UNION ALL
+         SELECT keys_time."Job_Task_Staff_ID",
+            keys_time."Job_ID",
+            keys_time."Task_ID",
+            keys_time."Staff_UUID",
+            keys_time."Staff_Name"
+           FROM keys_time) combined
+     LEFT JOIN "1_Job_Task_Details_Table" jt ON ((jt."Job_Task_Staff_ID" = combined."Job_Task_Staff_ID")))
+     LEFT JOIN key06_job_table j ON (((j."Job_ID")::text = (combined."Job_ID")::text)));
+
+Columns:
+
+Row Count: 27,061
+
+================================================================================
+
+Materialized View: leave_status_by_staff_date
+--------------------------------------------------------------------------------
+
+Definition:
+ SELECT lta."Name" AS staff_name,
+    cal."Date",
+    COALESCE(bool_or((mpd.mins_per_day = (480)::double precision)), false) AS is_full_day,
+    COALESCE(bool_or((mpd.mins_per_day <> (480)::double precision)), false) AS has_partial_leave,
+    COALESCE(sum(
+        CASE
+            WHEN (mpd.mins_per_day <> (480)::double precision) THEN (mpd.mins_per_day / (60.0)::double precision)
+            ELSE NULL::double precision
+        END), (0)::double precision) AS partial_leave_hrs_per_day
+   FROM ((((jobtask lt
+     JOIN jobtaskassignee lta ON ((lta."JobTaskID" = (lt."RemoteID")::uuid)))
+     LEFT JOIN jobdetails ljd ON (((ljd."RemoteID")::text = (lt."JobDetailsRemoteID")::text)))
+     CROSS JOIN LATERAL ( SELECT ((lta."AllocatedMinutes")::double precision / (NULLIF(( SELECT count(*) AS count
+                   FROM key01_calendar_date wcal
+                  WHERE ((wcal."Date" >= COALESCE(lt."StartDate", ljd."StartDate")) AND (wcal."Date" <= COALESCE(lt."DueDate",
+                        CASE
+                            WHEN (ljd."CompletedDate" IS NULL) THEN ljd."DueDate"
+                            ELSE LEAST(ljd."CompletedDate", ljd."DueDate")
+                        END)) AND (wcal."WeekEnd" = false) AND (wcal."PublicHoliday" = false) AND (EXISTS ( SELECT 1
+                           FROM excel_workable_days lewd
+                          WHERE ((lewd.staffname = lta."Name") AND (lewd.day_of_week = wcal."Weekday") AND (lewd.working_day = true)))))), 0))::double precision) AS mins_per_day) mpd)
+     JOIN key01_calendar_date cal ON (((cal."Date" >= COALESCE(lt."StartDate", ljd."StartDate")) AND (cal."Date" <= COALESCE(lt."DueDate",
+        CASE
+            WHEN (ljd."CompletedDate" IS NULL) THEN ljd."DueDate"
+            ELSE LEAST(ljd."CompletedDate", ljd."DueDate")
+        END)))))
+  WHERE ((lt."IsDeleted" = false) AND (lta."AllocatedMinutes" > (0)::numeric) AND ((lt."Name" ~~* '%Holiday%'::text) OR (lt."Name" ~~* '%Sick leave%'::text) OR (lt."Name" ~~* '%Other leave%'::text)))
+  GROUP BY lta."Name", cal."Date";
+
+Columns:
+
+Row Count: 2,550
+
+================================================================================
+
+
+================================================================================
+4. INDEXES
+================================================================================
+
+
+Table: 1_Job_Task_Details_Table
+--------------------------------------------------------------------------------
+  1_Job_Task_Details_Table_Job_Task_Staff_ID_idx
+    CREATE UNIQUE INDEX "1_Job_Task_Details_Table_Job_Task_Staff_ID_idx" ON public."1_Job_Task_Details_Table" USING btree ("Job_Task_Staff_ID")
+
+  1_Job_Task_Details_Table_Staff_Name_idx
+    CREATE INDEX "1_Job_Task_Details_Table_Staff_Name_idx" ON public."1_Job_Task_Details_Table" USING btree ("Staff_Name")
+
+
+Table: 2_Staff_Task_Allocation_byDay
+--------------------------------------------------------------------------------
+  2_Staff_Task_Allocation_byDay_Job_Task_Staff_ID_Date_idx
+    CREATE UNIQUE INDEX "2_Staff_Task_Allocation_byDay_Job_Task_Staff_ID_Date_idx" ON public."2_Staff_Task_Allocation_byDay" USING btree ("Job_Task_Staff_ID", "Date")
+
+  2_Staff_Task_Allocation_byDay_Job_Task_Staff_ID_idx
+    CREATE INDEX "2_Staff_Task_Allocation_byDay_Job_Task_Staff_ID_idx" ON public."2_Staff_Task_Allocation_byDay" USING btree ("Job_Task_Staff_ID")
+
+  2_Staff_Task_Allocation_byDay_Staff_Name_Date_idx
+    CREATE INDEX "2_Staff_Task_Allocation_byDay_Staff_Name_Date_idx" ON public."2_Staff_Task_Allocation_byDay" USING btree ("Staff_Name", "Date")
+
+
+Table: 3_Staff_Performance_Table
+--------------------------------------------------------------------------------
+  3_Staff_Performance_Table_Staff_Name_Date_idx
+    CREATE UNIQUE INDEX "3_Staff_Performance_Table_Staff_Name_Date_idx" ON public."3_Staff_Performance_Table" USING btree ("Staff_Name", "Date")
+
+
+Table: 4_Timesheet_Table
+--------------------------------------------------------------------------------
+  4_Timesheet_Table_Date_idx
+    CREATE INDEX "4_Timesheet_Table_Date_idx" ON public."4_Timesheet_Table" USING btree ("Date")
+
+  4_Timesheet_Table_Job_Task_Staff_ID_idx
+    CREATE INDEX "4_Timesheet_Table_Job_Task_Staff_ID_idx" ON public."4_Timesheet_Table" USING btree ("Job_Task_Staff_ID")
+
+  4_Timesheet_Table_Staff_Name_Date_idx
+    CREATE INDEX "4_Timesheet_Table_Staff_Name_Date_idx" ON public."4_Timesheet_Table" USING btree ("Staff_Name", "Date")
+
+  4_Timesheet_Table_Staff_Name_idx
+    CREATE INDEX "4_Timesheet_Table_Staff_Name_idx" ON public."4_Timesheet_Table" USING btree ("Staff_Name")
+
+  4_Timesheet_Table_row_id_idx
+    CREATE UNIQUE INDEX "4_Timesheet_Table_row_id_idx" ON public."4_Timesheet_Table" USING btree (row_id)
+
+
+Table: excel_workable_days
+--------------------------------------------------------------------------------
+  idx_excel_workable_days_staff_dow
+    CREATE INDEX idx_excel_workable_days_staff_dow ON public.excel_workable_days USING btree (staffname, day_of_week)
+
+
+Table: key02_job_task_staff_id
+--------------------------------------------------------------------------------
+  key02_job_task_staff_id_Job_Task_Staff_ID_idx
+    CREATE UNIQUE INDEX "key02_job_task_staff_id_Job_Task_Staff_ID_idx" ON public.key02_job_task_staff_id USING btree ("Job_Task_Staff_ID")
+
+  key02_job_task_staff_id_Staff_Name_idx
+    CREATE INDEX "key02_job_task_staff_id_Staff_Name_idx" ON public.key02_job_task_staff_id USING btree ("Staff_Name")
+
+
+Table: leave_status_by_staff_date
+--------------------------------------------------------------------------------
+  leave_status_by_staff_date_staff_name_Date_idx
+    CREATE UNIQUE INDEX "leave_status_by_staff_date_staff_name_Date_idx" ON public.leave_status_by_staff_date USING btree (staff_name, "Date")
 
 
 Table: synchub_workflowmax2_13307_1_category
@@ -3869,42 +4405,46 @@ Table: synchub_workflowmax2_13307_1_time
   idx_synchub_workflowmax2_13307_1_time_valid_from
     CREATE INDEX idx_synchub_workflowmax2_13307_1_time_valid_from ON public.synchub_workflowmax2_13307_1_time USING btree (_scd_valid_from)
 
+  idx_time_job_task_staff
+    CREATE INDEX idx_time_job_task_staff ON public.synchub_workflowmax2_13307_1_time USING btree ("JobID", "TaskUUID", "StaffMemberUUID")
+
   synchub_workflowmax2_13307_1_time_pkey
     CREATE UNIQUE INDEX synchub_workflowmax2_13307_1_time_pkey ON public.synchub_workflowmax2_13307_1_time USING btree (_scd_id)
 
 
 
 ================================================================================
-4. DATABASE STATISTICS
+5. DATABASE STATISTICS
 ================================================================================
 
 Table Sizes (Top 20):
 Table Name                               Size            Rows           
 --------------------------------------------------------------------------------
-synchub_workflowmax2_13307_1_time        18 MB                   58,292
-synchub_workflowmax2_13307_1_jobtaskassignee 9552 kB                 29,499
-synchub_workflowmax2_13307_1_jobtask     9000 kB                 33,571
-synchub_workflowmax2_13307_1_jobassignee 5440 kB                 21,271
-synchub_workflowmax2_13307_1_jobdetails  5008 kB                  7,934
-excel_recorded_invoiced_hours            3784 kB                 25,355
-synchub_workflowmax2_13307_1_invoicetask 2672 kB                 10,029
-synchub_workflowmax2_13307_1_invoicecost 1056 kB                  3,497
-synchub_workflowmax2_13307_1_invoice     976 kB                   3,016
-synchub_workflowmax2_13307_1_purchaseorderdetailscost 656 kB                   2,115
-synchub_workflowmax2_13307_1_purchaseorderdetails 536 kB                   1,750
-synchub_workflowmax2_13307_1_leadhistory 496 kB                     400
-synchub_workflowmax2_13307_1_clientdetails 264 kB                     512
-synchub_workflowmax2_13307_1_contact     264 kB                     612
-synchub_workflowmax2_13307_1_clientcontact 248 kB                     613
-synchub_workflowmax2_13307_1_supplier    200 kB                     500
-synchub_workflowmax2_13307_1_milestone   192 kB                     423
-synchub_workflowmax2_13307_1_quote       176 kB                     128
-synchub_workflowmax2_13307_1_quotetask   160 kB                     376
-synchub_workflowmax2_13307_1_quotecost   120 kB                     149
+2_Staff_Task_Allocation_byDay            343 MB                 752,758
+4_Timesheet_Table                        121 MB                 259,164
+synchub_workflowmax2_13307_1_time        19 MB                        0
+1_Job_Task_Details_Table                 14 MB                   26,923
+3_Staff_Performance_Table                12 MB                   71,190
+key02_job_task_staff_id                  9712 kB                 27,061
+synchub_workflowmax2_13307_1_jobtaskassignee 9552 kB                      0
+synchub_workflowmax2_13307_1_jobtask     9000 kB                      0
+synchub_workflowmax2_13307_1_jobassignee 5440 kB                      0
+synchub_workflowmax2_13307_1_jobdetails  5008 kB                      0
+excel_recorded_invoiced_hours            3784 kB                      0
+synchub_workflowmax2_13307_1_invoicetask 2672 kB                      0
+synchub_workflowmax2_13307_1_invoicecost 1056 kB                      0
+synchub_workflowmax2_13307_1_invoice     976 kB                       0
+synchub_workflowmax2_13307_1_purchaseorderdetailscost 656 kB                       0
+synchub_workflowmax2_13307_1_purchaseorderdetails 536 kB                       0
+synchub_workflowmax2_13307_1_leadhistory 496 kB                       0
+leave_status_by_staff_date               320 kB                   2,550
+synchub_workflowmax2_13307_1_contact     264 kB                       0
+synchub_workflowmax2_13307_1_clientdetails 264 kB                       0
 
 
 SUMMARY
 --------------------------------------------------------------------------------
 Total Tables: 40
-Total Views: 50
-Database Size: 69 MB
+Total Views: 45
+Total Materialized Views: 6
+Database Size: 571 MB
