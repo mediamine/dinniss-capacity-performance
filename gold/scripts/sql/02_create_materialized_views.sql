@@ -1314,9 +1314,17 @@ FROM
     ) adj_lkp ON adj_lkp.staffname = s."Staff_Name"
     AND adj_lkp.month_date = c."StartOfMonth"
     CROSS JOIN LATERAL (
-        -- orh: placeholder for Overall_Recordable_Hours (TBD — update when DAX provided)
+        -- orh: Overall_Recordable_Hours
+        -- DAX: IF(AND(Is_Workable_Day=TRUE(), Is_Staff_Workable_DayOfWeek=TRUE()), 8*Adjustment_Factor_by_Month, 0)
         SELECT
-            NULL::double precision AS val
+            CASE
+                WHEN NOT c."PublicHoliday"
+                    AND NOT c."WeekEnd"
+                    AND NOT COALESCE(lv_spt.is_full_day, FALSE)
+                    AND COALESCE(wd_lkp.working_day, FALSE)
+                THEN 8.0 * COALESCE(adj_lkp.adjustmentfactor, 0)
+                ELSE 0
+            END AS val
     ) orh
     -- alloc_agg: pre-aggregate 2_Staff_Task_Allocation_byDay once by (Staff_Name, Date),
     -- then hash-join to the outer loop — replaces ~44,000 individual nested-loop aggregate
