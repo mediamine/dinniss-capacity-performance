@@ -1164,32 +1164,25 @@ SELECT
     -- TO_CHAR('WW') was wrong: it treats Jan 1–7 always as week 1, ignoring the start-day.
     -- Example: Jan 2022 — Jan 1=Sat, so DAX week 1 = just Jan 1; Jan 2 (Sun) starts week 2.
     --          TO_CHAR gives Jan 5 = WW 1 (wrong); this formula gives CEIL((5+6)/7)=2 (correct).
+    -- DATE_TRUNC('year',...) cast to ::date before EXTRACT(DOW): DATE_TRUNC returns timestamptz,
+    -- and EXTRACT(DOW FROM timestamptz) is session-timezone-dependent — Jan 1 UTC midnight can
+    -- appear as Dec 31 in a local timezone, returning the wrong DOW for the year.
     1 + CEIL(
         (
-            EXTRACT(
-                DOY
-                FROM
-                    c."Date"
-            )::float + EXTRACT(
-                DOW
-                FROM
-                    DATE_TRUNC('year', c."Date")
-            )::float
+            EXTRACT(DOY FROM c."Date")::float
+            + EXTRACT(DOW FROM DATE_TRUNC('year', c."Date")::date)::float
         ) / 7.0
     )::int - CEIL(
         (
-            EXTRACT(
-                DOY
-                FROM
-                    DATE_TRUNC('month', c."Date")::date
-            )::float + EXTRACT(
-                DOW
-                FROM
-                    DATE_TRUNC('year', c."Date")
-            )::float
+            EXTRACT(DOY FROM DATE_TRUNC('month', c."Date")::date)::float
+            + EXTRACT(DOW FROM DATE_TRUNC('year', c."Date")::date)::float
         ) / 7.0
     )::int AS "Week_Of_Month",
-    -- Overall_Recordable_Hours: placeholder — update orh LATERAL when DAX is provided
+    -- Overall_Recordable_Hours
+    -- NOTE: adj_lkp defaults to adjustmentfactor=0 when no entry exists in excel_staff_adjustment_sheet
+    -- for this staff+month. This means staff without an adjustment sheet entry produce orh=0,
+    -- which propagates as NULL/0 through all downstream columns. This is intentional — only staff
+    -- with explicit entries in the adjustment sheet are included in capacity calculations.
     orh.val AS "Overall_Recordable_Hours",
     -- Allocated_Holiday_Hours: SUM(Allo_Hrs_perWorkableDay_Final_Output) for Holiday tasks * -1
     --   Guard: IF(Overall_Recordable_Hours=0, BLANK(), ...)
@@ -1208,7 +1201,7 @@ SELECT
     --   Holiday and OtherLeave are already negative, BLANK()→0 in DAX addition
     CASE
         WHEN orh.val = 0 THEN 0
-        ELSE orh.val + COALESCE(- alloc_agg.hol_hrs, 0) + COALESCE(- alloc_agg.lvl_hrs, 0)
+        ELSE orh.val - COALESCE(alloc_agg.hol_hrs, 0) - COALESCE(alloc_agg.lvl_hrs, 0)
     END AS "Non_Leave_Recordable_Hours",
     -- Allocated_Dinniss_Admin_Hours: SUM for Task_Category="Admin Tasks" (no * -1)
     CASE
@@ -1219,7 +1212,7 @@ SELECT
     --   Guard: IF(Overall=0, 0, Logic)
     CASE
         WHEN orh.val = 0 THEN 0
-        ELSE orh.val + COALESCE(- alloc_agg.hol_hrs, 0) + COALESCE(- alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
+        ELSE orh.val - COALESCE(alloc_agg.hol_hrs, 0) - COALESCE(alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
     END AS "Available_Billable_Hours",
     -- Allocated_Billable_Hours_Original: SUM(Allo_Hrs_perWorkDay_AdjLeaves_FIN01) for Billable Tasks
     --   Guard: IF(Overall=0, BLANK(), ...)
@@ -1237,7 +1230,7 @@ SELECT
     CASE
         WHEN orh.val = 0 THEN 0
         ELSE (
-            orh.val + COALESCE(- alloc_agg.hol_hrs, 0) + COALESCE(- alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
+            orh.val - COALESCE(alloc_agg.hol_hrs, 0) - COALESCE(alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
         ) * itgt.target_billable_hours
     END AS "Target_Billable_Hours",
     -- Target_Non_Leave_Hours: Non_Leave_Recordable_Hours * target_billable_hours; IF(Logic<=0, BLANK(), Logic)
@@ -1255,7 +1248,7 @@ SELECT
         WHEN c."Date" >= CURRENT_DATE THEN NULL
         WHEN orh.val = 0 THEN 0
         ELSE (
-            orh.val + COALESCE(- alloc_agg.hol_hrs, 0) + COALESCE(- alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
+            orh.val - COALESCE(alloc_agg.hol_hrs, 0) - COALESCE(alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
         ) * itgt.target_billable_hours
     END AS "M2Date_Target_Billable_Hours",
     -- Annual_Leave_Hours_Recorded: SUM(Recorded_Minutes/60) from 4_Timesheet_Table for Holiday tasks * -1
@@ -1441,7 +1434,7 @@ FROM
             (
                 CASE
                     WHEN orh.val = 0 THEN 0
-                    ELSE orh.val + COALESCE(- alloc_agg.hol_hrs, 0) + COALESCE(- alloc_agg.lvl_hrs, 0)
+                    ELSE orh.val - COALESCE(alloc_agg.hol_hrs, 0) - COALESCE(alloc_agg.lvl_hrs, 0)
                 END
             ) * itgt.target_billable_hours AS val
     ) tnl
@@ -1452,7 +1445,7 @@ FROM
                 CASE
                     WHEN orh.val = 0 THEN 0
                     ELSE (
-                        orh.val + COALESCE(- alloc_agg.hol_hrs, 0) + COALESCE(- alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
+                        orh.val - COALESCE(alloc_agg.hol_hrs, 0) - COALESCE(alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
                     ) * itgt.target_billable_hours
                 END
             ) * itgt.target_recorded_2_billable_hrs AS val
@@ -1464,7 +1457,7 @@ FROM
                 CASE
                     WHEN orh.val = 0 THEN 0
                     ELSE (
-                        orh.val + COALESCE(- alloc_agg.hol_hrs, 0) + COALESCE(- alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
+                        orh.val - COALESCE(alloc_agg.hol_hrs, 0) - COALESCE(alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
                     ) * itgt.target_billable_hours
                 END
             ) * itgt.target_allocated_2_billable_hrs AS val
@@ -1476,7 +1469,7 @@ FROM
                 CASE
                     WHEN orh.val = 0 THEN 0
                     ELSE (
-                        orh.val + COALESCE(- alloc_agg.hol_hrs, 0) + COALESCE(- alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
+                        orh.val - COALESCE(alloc_agg.hol_hrs, 0) - COALESCE(alloc_agg.lvl_hrs, 0) - COALESCE(alloc_agg.adm_hrs, 0)
                     ) * itgt.target_billable_hours
                 END
             ) * itgt.target_invoiced_2_billable_hrs AS val
