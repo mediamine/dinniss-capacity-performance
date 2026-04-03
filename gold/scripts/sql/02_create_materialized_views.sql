@@ -14,7 +14,6 @@
 -- For daily refresh use 02_refresh_materialized_views.sql instead.
 -- Only re-run this file when the view structure changes (adding/changing columns).
 -- =============================================================================
-
 -- leave_status_by_staff_date (Optimization 1)
 -- Pre-computes is_full_day / has_partial_leave / partial_leave_hrs_per_day
 -- per (staff_name, date). Eliminates the O(n⁴) inline jobtask × nested COUNT
@@ -536,7 +535,7 @@ DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table" CASCADE;
 
 CREATE MATERIALIZED VIEW "4_Timesheet_Table" AS
 SELECT
-    ROW_NUMBER() OVER ()                               AS "row_id",
+    ROW_NUMBER() OVER () AS "row_id",
     (t."JobID" || t."TaskUUID" || t."StaffMemberUUID") AS "Job_Task_Staff_ID",
     t."UUID" AS "Timesheet_UUID",
     t."JobID" AS "Job_ID",
@@ -732,6 +731,8 @@ CREATE INDEX ON "4_Timesheet_Table" ("Date");
 
 
 CREATE INDEX ON "4_Timesheet_Table" ("Staff_Name", "Date");
+
+
 CREATE UNIQUE INDEX ON "4_Timesheet_Table" ("row_id");
 
 
@@ -881,8 +882,10 @@ SELECT
     -- Is_Full_Day_Leave: on this date, this staff has ANY full-day leave task (480 mins/workday)
     COALESCE(lv.is_full_day, FALSE) AS "Is_Full_Day_Leave",
     -- Admin_Task_To_Be_Removed: Task_Name = 'Admin - Non-billable' AND Date >= 2021-02-01
-    (k."Task_Name" = 'Admin - Non-billable' AND c."Date" >= DATE '2021-02-01')
-                                                                      AS "Admin_Task_To_Be_Removed",
+    (
+        k."Task_Name" = 'Admin - Non-billable'
+        AND c."Date" >= DATE '2021-02-01'
+    ) AS "Admin_Task_To_Be_Removed",
     -- Is_Staff_Workable_DayOfWeek: staff works on this weekday per excel_workable_days
     COALESCE(wkd.working_day, FALSE) AS "Is_Staff_Workable_DayOfWeek",
     -- Is_Day_With_a_Leave: on this date, this staff has ANY partial (non-full-day) leave task
@@ -1025,7 +1028,19 @@ SELECT
     -- (COALESCE(fi."Type", '') = 'Final Invoice')                       AS "Is_Final_Invoice_Raised",
     -- Recorded_Task_Hours: SUM(Recorded_Minutes)/60 from 4_Timesheet_Table for this Job_Task_Staff_ID + Date
     --   DAX: CALCULATE(SUM(Recorded_Minutes)/60, FILTER by Job_Task_Staff_ID AND Date)
-    ts_task.recorded_hrs                                              AS "Recorded_Task_Hours",
+    ts_task.recorded_hrs AS "Recorded_Task_Hours",
+    -- Allo_Hrs_perWorkDay_Leave: hours for leave tasks (Holiday / Sick / Other) per workable day
+    --   Same as KPI01 but WITHOUT the NOT is_full_day guard: leave tasks cause full-day leave for the
+    --   staff on those dates, so KPI01 = NULL for all leave task rows. This column captures the
+    --   allocation by using Initial_Avg_Mins_perWorkDay / 60, gated only on workday + working_day.
+    --   Used by 3_Staff_Performance_Table alloc_agg for Allocated_Holiday_Hours / Allocated_Other_Leave_Hours.
+    --   Date-range guard is redundant (WHERE clause guarantees it) but included for clarity.
+    CASE
+        WHEN COALESCE(jt."Is_Task_a_Leave", FALSE)
+        AND NOT c."WeekEnd"
+        AND NOT c."PublicHoliday"
+        AND COALESCE(wkd.working_day, FALSE) THEN jt."Initial_Avg_Mins_perWorkDay" / 60.0
+    END AS "Allo_Hrs_perWorkDay_Leave",
     -- Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02 = KPI04 + KPI05 (pending FIN02 DAX)
     NULL::double precision AS "Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02",
     -- Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03 = KPI06 + KPI07 (pending FIN03 DAX)
@@ -1057,21 +1072,30 @@ FROM
     -- j6: job state lookup for Is_Job_Complete
     -- DISTINCT ON ("Job_ID") because key06_job_table has one row per staff assignee per job
     LEFT JOIN (
-        SELECT DISTINCT ON ("Job_ID") "Job_ID", "Job_State"
-        FROM key06_job_table
-        ORDER BY "Job_ID"
+        SELECT DISTINCT
+            ON ("Job_ID") "Job_ID",
+            "Job_State"
+        FROM
+            key06_job_table
+        ORDER BY
+            "Job_ID"
     ) j6 ON j6."Job_ID" = k."Job_ID"
     -- fi: final invoice lookup for Is_Final_Invoice_Raised
     -- DISABLED: relation "TOCHECK_JobWithFinalInvoice" does not exist yet
     -- LEFT JOIN "TOCHECK_JobWithFinalInvoice" fi ON fi."JobText" = k."Job_ID"
     -- ts_task: pre-aggregate 4_Timesheet_Table once by (Job_Task_Staff_ID, Date) for Recorded_Task_Hours
     LEFT JOIN (
-        SELECT "Job_Task_Staff_ID", "Date"::date AS ts_date,
-               SUM("Recorded_Minutes") / 60.0    AS recorded_hrs
-        FROM "4_Timesheet_Table"
-        GROUP BY "Job_Task_Staff_ID", "Date"::date
+        SELECT
+            "Job_Task_Staff_ID",
+            "Date"::date AS ts_date,
+            SUM("Recorded_Minutes") / 60.0 AS recorded_hrs
+        FROM
+            "4_Timesheet_Table"
+        GROUP BY
+            "Job_Task_Staff_ID",
+            "Date"::date
     ) ts_task ON ts_task."Job_Task_Staff_ID" = k."Job_Task_Staff_ID"
-             AND ts_task.ts_date = c."Date"
+    AND ts_task.ts_date = c."Date"
     -- Filter to only calendar dates within each task's adjusted date range (Optimization J)
     -- Without this, the CROSS JOIN produces N_dates × N_tasks rows; the vast majority have
     -- dates outside any task's window and evaluate to all-NULL KPI columns — wasted storage
@@ -1088,6 +1112,8 @@ CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Staff_Name", "Date");
 
 
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Job_Task_Staff_ID");
+
+
 CREATE UNIQUE INDEX ON "2_Staff_Task_Allocation_byDay" ("Job_Task_Staff_ID", "Date");
 
 
@@ -1138,22 +1164,45 @@ SELECT
     -- TO_CHAR('WW') was wrong: it treats Jan 1–7 always as week 1, ignoring the start-day.
     -- Example: Jan 2022 — Jan 1=Sat, so DAX week 1 = just Jan 1; Jan 2 (Sun) starts week 2.
     --          TO_CHAR gives Jan 5 = WW 1 (wrong); this formula gives CEIL((5+6)/7)=2 (correct).
-    1 + CEIL((EXTRACT(DOY FROM c."Date")::float
-              + EXTRACT(DOW FROM DATE_TRUNC('year', c."Date"))::float) / 7.0)::int
-      - CEIL((EXTRACT(DOY FROM DATE_TRUNC('month', c."Date")::date)::float
-              + EXTRACT(DOW FROM DATE_TRUNC('year', c."Date"))::float) / 7.0)::int AS "Week_Of_Month",
+    1 + CEIL(
+        (
+            EXTRACT(
+                DOY
+                FROM
+                    c."Date"
+            )::float + EXTRACT(
+                DOW
+                FROM
+                    DATE_TRUNC('year', c."Date")
+            )::float
+        ) / 7.0
+    )::int - CEIL(
+        (
+            EXTRACT(
+                DOY
+                FROM
+                    DATE_TRUNC('month', c."Date")::date
+            )::float + EXTRACT(
+                DOW
+                FROM
+                    DATE_TRUNC('year', c."Date")
+            )::float
+        ) / 7.0
+    )::int AS "Week_Of_Month",
     -- Overall_Recordable_Hours: placeholder — update orh LATERAL when DAX is provided
     orh.val AS "Overall_Recordable_Hours",
     -- Allocated_Holiday_Hours: SUM(Allo_Hrs_perWorkableDay_Final_Output) for Holiday tasks * -1
     --   Guard: IF(Overall_Recordable_Hours=0, BLANK(), ...)
+    --   COALESCE hol_hrs to 0: no holiday rows → LEFT JOIN gives NULL → -NULL = NULL; DAX BLANK() = 0 in arithmetic
     CASE
         WHEN orh.val = 0 THEN NULL
-        ELSE - alloc_agg.hol_hrs
+        ELSE - COALESCE(alloc_agg.hol_hrs, 0)
     END AS "Allocated_Holiday_Hours",
     -- Allocated_Other_Leave_Hours: SUM for Sick leave / Other leave tasks * -1
+    --   Same COALESCE fix as Allocated_Holiday_Hours
     CASE
         WHEN orh.val = 0 THEN NULL
-        ELSE - alloc_agg.lvl_hrs
+        ELSE - COALESCE(alloc_agg.lvl_hrs, 0)
     END AS "Allocated_Other_Leave_Hours",
     -- Non_Leave_Recordable_Hours: IF(Overall=0, 0, Overall + Holiday + OtherLeave)
     --   Holiday and OtherLeave are already negative, BLANK()→0 in DAX addition
@@ -1322,10 +1371,9 @@ FROM
         SELECT
             CASE
                 WHEN NOT c."PublicHoliday"
-                    AND NOT c."WeekEnd"
-                    AND NOT COALESCE(lv_spt.is_full_day, FALSE)
-                    AND COALESCE(wd_lkp.working_day, FALSE)
-                THEN ROUND(8.0 * COALESCE(adj_lkp.adjustmentfactor, 0))
+                AND NOT c."WeekEnd"
+                AND NOT COALESCE(lv_spt.is_full_day, FALSE)
+                AND COALESCE(wd_lkp.working_day, FALSE) THEN ROUND(8.0 * COALESCE(adj_lkp.adjustmentfactor, 0))
                 ELSE 0
             END AS val
     ) orh
@@ -1336,11 +1384,14 @@ FROM
         SELECT
             a."Staff_Name",
             a."Date",
-            SUM(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (
+            -- hol_hrs / lvl_hrs: leave tasks have NULL for all KPI columns (KPI01 guards NOT is_full_day,
+            -- KPI02/03 guard Is_Task_a_Leave=FALSE, KPI04-07 guard Billable Tasks only).
+            -- Use Allo_Hrs_perWorkDay_Leave which is KPI01 without the is_full_day guard.
+            SUM(a."Allo_Hrs_perWorkDay_Leave") FILTER (
                 WHERE
                     a."Task_Name" ILIKE '%Holiday%'
             ) AS hol_hrs,
-            SUM(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (
+            SUM(a."Allo_Hrs_perWorkDay_Leave") FILTER (
                 WHERE
                     a."Task_Name" ILIKE '%Sick leave%'
                     OR a."Task_Name" ILIKE '%Other leave%'
