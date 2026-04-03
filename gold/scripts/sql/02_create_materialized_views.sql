@@ -1120,25 +1120,24 @@ CREATE MATERIALIZED VIEW "3_Staff_Performance_Table" AS
 SELECT
     c.*,
     s.*,
-    -- Is_Workable_Day: replaced NOT EXISTS on 1_Job_Task_Details_Table with leave_status_by_staff_date (Opt E)
-    CASE
-        WHEN NOT c."PublicHoliday"
-        AND NOT c."WeekEnd" THEN NOT COALESCE(lv_spt.is_full_day, FALSE)
-    END AS "Is_Workable_Day",
+    -- Is_Workable_Day
+    -- DAX: IF(AND(Is_PublicHoliday=FALSE,Is_WeekEnd=FALSE), IF(Is_Full_Day_Leave=FALSE,TRUE,FALSE))
+    -- DAX outer IF has no else → BLANK on holiday/weekend, but correct value is FALSE
+    (
+        NOT c."PublicHoliday"
+        AND NOT c."WeekEnd"
+        AND NOT COALESCE(lv_spt.is_full_day, FALSE)
+    ) AS "Is_Workable_Day",
     -- Is_Staff_Workable_DayOfWeek: merged from scalar subquery into wd_lkp JOIN (Opt F)
     wd_lkp.working_day AS "Is_Staff_Workable_DayOfWeek",
     -- Adjustment_Factor_by_Month: merged from scalar subquery into adj_lkp JOIN (Opt F)
     COALESCE(adj_lkp.adjustmentfactor, 0) AS "Adjustment_Factor_by_Month",
     -- Week_Of_Month: 1 + WEEKNUM(Date) - WEEKNUM(STARTOFMONTH(Date))
-    1 + EXTRACT(
-        WEEK
-        FROM
-            c."Date"
-    )::int - EXTRACT(
-        WEEK
-        FROM
-            DATE_TRUNC('month', c."Date")::date
-    )::int AS "Week_Of_Month",
+    -- DAX WEEKNUM() defaults to return_type=1 (week 1 starts Jan 1).
+    -- EXTRACT(WEEK) uses ISO 8601 — Jan 1 can fall in week 52/53 of prior year, causing negatives.
+    -- TO_CHAR('WW') counts week 1 from Jan 1, matching DAX behaviour.
+    1 + TO_CHAR(c."Date", 'WW')::int
+      - TO_CHAR(DATE_TRUNC('month', c."Date")::date, 'WW')::int AS "Week_Of_Month",
     -- Overall_Recordable_Hours: placeholder — update orh LATERAL when DAX is provided
     orh.val AS "Overall_Recordable_Hours",
     -- Allocated_Holiday_Hours: SUM(Allo_Hrs_perWorkableDay_Final_Output) for Holiday tasks * -1
@@ -1322,7 +1321,7 @@ FROM
                     AND NOT c."WeekEnd"
                     AND NOT COALESCE(lv_spt.is_full_day, FALSE)
                     AND COALESCE(wd_lkp.working_day, FALSE)
-                THEN 8.0 * COALESCE(adj_lkp.adjustmentfactor, 0)
+                THEN ROUND(8.0 * COALESCE(adj_lkp.adjustmentfactor, 0))
                 ELSE 0
             END AS val
     ) orh
