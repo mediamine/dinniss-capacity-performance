@@ -1133,11 +1133,15 @@ SELECT
     -- Adjustment_Factor_by_Month: merged from scalar subquery into adj_lkp JOIN (Opt F)
     COALESCE(adj_lkp.adjustmentfactor, 0) AS "Adjustment_Factor_by_Month",
     -- Week_Of_Month: 1 + WEEKNUM(Date) - WEEKNUM(STARTOFMONTH(Date))
-    -- DAX WEEKNUM() defaults to return_type=1 (week 1 starts Jan 1).
-    -- EXTRACT(WEEK) uses ISO 8601 — Jan 1 can fall in week 52/53 of prior year, causing negatives.
-    -- TO_CHAR('WW') counts week 1 from Jan 1, matching DAX behaviour.
-    1 + TO_CHAR(c."Date", 'WW')::int
-      - TO_CHAR(DATE_TRUNC('month', c."Date")::date, 'WW')::int AS "Week_Of_Month",
+    -- DAX WEEKNUM(date, 1): week starts Sunday; week 1 = partial week containing Jan 1.
+    -- Formula: CEIL((DOY + DOW_of_Jan1) / 7) where DOW uses EXTRACT(DOW) (0=Sun … 6=Sat).
+    -- TO_CHAR('WW') was wrong: it treats Jan 1–7 always as week 1, ignoring the start-day.
+    -- Example: Jan 2022 — Jan 1=Sat, so DAX week 1 = just Jan 1; Jan 2 (Sun) starts week 2.
+    --          TO_CHAR gives Jan 5 = WW 1 (wrong); this formula gives CEIL((5+6)/7)=2 (correct).
+    1 + CEIL((EXTRACT(DOY FROM c."Date")::float
+              + EXTRACT(DOW FROM DATE_TRUNC('year', c."Date"))::float) / 7.0)::int
+      - CEIL((EXTRACT(DOY FROM DATE_TRUNC('month', c."Date")::date)::float
+              + EXTRACT(DOW FROM DATE_TRUNC('year', c."Date"))::float) / 7.0)::int AS "Week_Of_Month",
     -- Overall_Recordable_Hours: placeholder — update orh LATERAL when DAX is provided
     orh.val AS "Overall_Recordable_Hours",
     -- Allocated_Holiday_Hours: SUM(Allo_Hrs_perWorkableDay_Final_Output) for Holiday tasks * -1
