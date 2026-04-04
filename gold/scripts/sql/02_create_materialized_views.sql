@@ -835,6 +835,7 @@ DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay" CASCADE;
 
 
 CREATE MATERIALIZED VIEW "2_Staff_Task_Allocation_byDay" AS
+WITH base AS (
 SELECT
     c.*,
     k.*,
@@ -1041,14 +1042,19 @@ SELECT
         AND NOT c."PublicHoliday"
         AND COALESCE(wkd.working_day, FALSE) THEN jt."Initial_Avg_Mins_perWorkDay" / 60.0
     END AS "Allo_Hrs_perWorkDay_Leave",
-    -- Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02 = KPI04 + KPI05 (pending FIN02 DAX)
-    NULL::double precision AS "Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02",
-    -- Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03 = KPI06 + KPI07 (pending FIN03 DAX)
-    NULL::double precision AS "Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03",
-    -- Allo_Hrs_perWorkDay_AdjLeaves_FIN01 = FIN02 + FIN03 (pending FIN02, FIN03)
-    NULL::double precision AS "Allo_Hrs_perWorkDay_AdjLeaves_FIN01",
-    -- Allo_Hrs_perWorkableDay_Final_Output (pending FIN01)
-    NULL::double precision AS "Allo_Hrs_perWorkableDay_Final_Output"
+    -- Allo_Hrs_perWorkDay_Admin: hours for admin tasks (Task_Category='Admin Tasks') per workable day.
+    --   KPI01 explicitly excludes admin tasks (guards NOT Admin-Non-billable AND NOT Dinniss Admin),
+    --   so admin task rows have NULL in all KPI columns and NULL Allo_Hrs_perWorkableDay_Final_Output.
+    --   Same structure as Allo_Hrs_perWorkDay_Leave but gated on Task_Category='Admin Tasks' instead.
+    --   Used by 3_Staff_Performance_Table alloc_agg for Allocated_Dinniss_Admin_Hours.
+    CASE
+        WHEN k."Task_Category" = 'Admin Tasks'
+        AND NOT c."WeekEnd"
+        AND NOT c."PublicHoliday"
+        AND COALESCE(wkd.working_day, FALSE)
+        AND NOT COALESCE(lv.is_full_day, FALSE)
+        THEN jt."Initial_Avg_Mins_perWorkDay" / 60.0
+    END AS "Allo_Hrs_perWorkDay_Admin"
 FROM
     key01_calendar_date c
     CROSS JOIN key02_job_task_staff_id k
@@ -1105,7 +1111,58 @@ FROM
 WHERE
     jt."StartDateAdjusted" IS NOT NULL
     AND c."Date" >= jt."StartDateAdjusted"
-    AND c."Date" <= jt."DueDateAdjusted";
+    AND c."Date" <= jt."DueDateAdjusted"
+)
+SELECT
+    base.*,
+    -- FIN02 = KPI04 + KPI05 (mutually exclusive: KPI04 when has_partial_leave, KPI05 otherwise)
+    -- Both only fire for Billable Tasks, date >= TODAY. NULL when both NULL (BLANK+BLANK=BLANK in DAX).
+    CASE
+        WHEN base."Allo_Hrs_perRemainingWorkDay_WITH_LEAVE_KPI04" IS NULL
+         AND base."Allo_Hrs_perRemainingWorkDay_WITHOUT_LEAVE_KPI05" IS NULL THEN NULL
+        ELSE COALESCE(base."Allo_Hrs_perRemainingWorkDay_WITH_LEAVE_KPI04", 0)
+           + COALESCE(base."Allo_Hrs_perRemainingWorkDay_WITHOUT_LEAVE_KPI05", 0)
+    END AS "Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02",
+    -- FIN03 = KPI06 + KPI07 (mutually exclusive: KPI06 when has_partial_leave, KPI07 otherwise)
+    -- Both only fire for Billable Tasks, date < TODAY.
+    CASE
+        WHEN base."Act_Allo_Hrs_perPriorWorkDays_WITH_LEAVE_KPI06" IS NULL
+         AND base."Act_Allo_Hrs_perPriorWorkDays_WITHOUT_LEAVE_KPI07" IS NULL THEN NULL
+        ELSE COALESCE(base."Act_Allo_Hrs_perPriorWorkDays_WITH_LEAVE_KPI06", 0)
+           + COALESCE(base."Act_Allo_Hrs_perPriorWorkDays_WITHOUT_LEAVE_KPI07", 0)
+    END AS "Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03",
+    -- FIN01 = KPI02 + KPI03 (mutually exclusive: KPI02 when no partial leave, KPI03 when has partial leave)
+    -- Both KPI02/03 exclude admin tasks → FIN01 = NULL for admin task rows (by design in DAX).
+    -- Used as Allocated_Billable_Hours_Original source for Billable Tasks.
+    CASE
+        WHEN base."Allo_Hrs_perWorkday_WITHOUT_Leave_KPI02" IS NULL
+         AND base."Allo_Hrs_perWorkday_WITH_Leave_KPI03" IS NULL THEN NULL
+        ELSE COALESCE(base."Allo_Hrs_perWorkday_WITHOUT_Leave_KPI02", 0)
+           + COALESCE(base."Allo_Hrs_perWorkday_WITH_Leave_KPI03", 0)
+    END AS "Allo_Hrs_perWorkDay_AdjLeaves_FIN01",
+    -- Allo_Hrs_perWorkableDay_Final_Output
+    -- DAX: IF(Leave, KPI01, IF(Admin, FIN01, IF(Billable, FIN02+FIN03, BLANK())))
+    -- Leave:    KPI01 — NULL for full-day leave (staff on leave can't be allocated)
+    -- Admin:    FIN01 = KPI02+KPI03 — both exclude admin tasks → NULL for all admin rows (by design);
+    --           Allocated_Dinniss_Admin_Hours uses Allo_Hrs_perWorkDay_Admin column instead
+    -- Billable: FIN02+FIN03 = KPI04+KPI05+KPI06+KPI07 (future + prior days combined)
+    CASE
+        WHEN base."Task_Category" = 'Leave Tasks'
+            THEN base."Initial_Allo_Hrs_perWorkDay_KPI01"
+        WHEN base."Task_Category" = 'Admin Tasks'
+            THEN CASE
+                    WHEN base."Allo_Hrs_perWorkday_WITHOUT_Leave_KPI02" IS NULL
+                     AND base."Allo_Hrs_perWorkday_WITH_Leave_KPI03" IS NULL THEN NULL
+                    ELSE COALESCE(base."Allo_Hrs_perWorkday_WITHOUT_Leave_KPI02", 0)
+                       + COALESCE(base."Allo_Hrs_perWorkday_WITH_Leave_KPI03", 0)
+                 END
+        WHEN base."Task_Category" = 'Billable Tasks'
+            THEN COALESCE(base."Allo_Hrs_perRemainingWorkDay_WITH_LEAVE_KPI04", 0)
+               + COALESCE(base."Allo_Hrs_perRemainingWorkDay_WITHOUT_LEAVE_KPI05", 0)
+               + COALESCE(base."Act_Allo_Hrs_perPriorWorkDays_WITH_LEAVE_KPI06", 0)
+               + COALESCE(base."Act_Allo_Hrs_perPriorWorkDays_WITHOUT_LEAVE_KPI07", 0)
+    END AS "Allo_Hrs_perWorkableDay_Final_Output"
+FROM base;
 
 
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Staff_Name", "Date");
@@ -1389,7 +1446,8 @@ FROM
                     a."Task_Name" ILIKE '%Sick leave%'
                     OR a."Task_Name" ILIKE '%Other leave%'
             ) AS lvl_hrs,
-            SUM(a."Allo_Hrs_perWorkableDay_Final_Output") FILTER (
+            -- adm_hrs: admin tasks excluded from all KPI columns; use Allo_Hrs_perWorkDay_Admin
+            SUM(a."Allo_Hrs_perWorkDay_Admin") FILTER (
                 WHERE
                     a."Task_Category" = 'Admin Tasks'
             ) AS adm_hrs,
