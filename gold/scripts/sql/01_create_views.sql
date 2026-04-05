@@ -94,11 +94,17 @@
 --   → 2_Staff_Task_Allocation_byDay
 --   → 3_Staff_Performance_Table
 -- =============================================================================
--- independent key views
+-- MATERIALIZED VIEWS: Key reference tables
+-- All views in this file are MATERIALIZED for performance optimization.
+-- Run this file once during initial setup, then use 03_refresh_materialized_views.sql
+-- for daily refresh via REFRESH MATERIALIZED VIEW CONCURRENTLY.
+-- =============================================================================
+-- Independent materialized views (no circular dependencies)
 DROP VIEW IF EXISTS key01_calendar_date CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS key01_calendar_date CASCADE;
 
 
-CREATE OR REPLACE VIEW key01_calendar_date AS
+CREATE MATERIALIZED VIEW key01_calendar_date AS
 SELECT
     gs::DATE AS "Date",
     EXISTS (
@@ -152,10 +158,14 @@ FROM
     ) gs;
 
 
+CREATE INDEX ON key01_calendar_date ("Date");
+
+
 DROP VIEW IF EXISTS key08_incentive_table_display_measure CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS key08_incentive_table_display_measure CASCADE;
 
 
-CREATE OR REPLACE VIEW key08_incentive_table_display_measure AS
+CREATE MATERIALIZED VIEW key08_incentive_table_display_measure AS
 SELECT
     metric AS "Metric",
     'Selected Metric: ' || SUBSTRING(
@@ -184,11 +194,12 @@ FROM
     ) AS metric;
 
 
--- key views dependent on another table or view
+-- Dependent materialized views (lookups from base tables)
 DROP VIEW IF EXISTS key03_staff_table CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS key03_staff_table CASCADE;
 
 
-CREATE OR REPLACE VIEW key03_staff_table AS
+CREATE MATERIALIZED VIEW key03_staff_table AS
 SELECT DISTINCT ON ("Name")
     "StaffID" AS "Staff_UUID",
     "Name" AS "Staff_Name"
@@ -210,9 +221,10 @@ ORDER BY "Name";
 
 
 DROP VIEW IF EXISTS key05_task_type CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS key05_task_type CASCADE;
 
 
-CREATE OR REPLACE VIEW key05_task_type AS
+CREATE MATERIALIZED VIEW key05_task_type AS
 SELECT
     "UUID" AS "TaskType_UUID",
     "Name"
@@ -221,9 +233,10 @@ FROM
 
 
 DROP VIEW IF EXISTS key04_task_name CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS key04_task_name CASCADE;
 
 
-CREATE OR REPLACE VIEW key04_task_name AS
+CREATE MATERIALIZED VIEW key04_task_name AS
 SELECT
     "Task_Name",
     "Task_Type1",
@@ -262,9 +275,10 @@ FROM
 
 
 DROP VIEW IF EXISTS key06_job_table CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS key06_job_table CASCADE;
 
 
-CREATE OR REPLACE VIEW key06_job_table AS
+CREATE MATERIALIZED VIEW key06_job_table AS
 SELECT
     jd."UUID" AS "Job_UUID",
     jd."ID" AS "Job_ID",
@@ -284,7 +298,22 @@ FROM
     LEFT JOIN jobassignee ja ON ja."JobID" = jd."RemoteID";
 
 
+CREATE INDEX ON key03_staff_table ("Staff_Name");
+
+
+CREATE UNIQUE INDEX ON key04_task_name ("Task_Name");
+
+
+CREATE INDEX ON key05_task_type ("Name");
+
+
+CREATE INDEX ON key06_job_table ("Job_ID");
+CREATE INDEX ON key06_job_table ("Client_Name");
+
+
 -- =============================================================================
--- Materialized views have been moved to 02_create_materialized_views.sql.
--- Run 01_create_views.sql first, then 02_create_materialized_views.sql.
+-- Core materialized views (dependent on other tables)
+-- These materialized views depend on base tables and the independent materialized
+-- views created above. Additional materialized views are defined in
+-- 02_create_materialized_views.sql (1_Job_Task_Details_Table, 2_Staff_Task_Allocation_byDay, etc.)
 -- =============================================================================
