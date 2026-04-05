@@ -4,8 +4,9 @@
 -- Run AFTER 01_create_views.sql (which creates the base key views these depend on).
 --
 -- Creation order (dependency chain):
---   1. leave_status_by_staff_date
---   2. 1_Job_Task_Details_Table
+--   1. support_staff_leave_allocation_byday  (raw tables only — no circular dependency)
+--   2. leave_status_by_staff_date            (aggregates from support_staff_leave_allocation_byday)
+--   3. 1_Job_Task_Details_Table              (depends on leave_status_by_staff_date)
 --   3. 4_Timesheet_Table  →  keys_time (regular view)
 --   4. key02_job_task_staff_id
 --   5. 2_Staff_Task_Allocation_byDay  →  key07_is_billable (regular view)
@@ -14,86 +15,144 @@
 -- For daily refresh use 02_refresh_materialized_views.sql instead.
 -- Only re-run this file when the view structure changes (adding/changing columns).
 -- =============================================================================
--- leave_status_by_staff_date (Optimization 1)
--- Pre-computes is_full_day / has_partial_leave / partial_leave_hrs_per_day
--- per (staff_name, date). Eliminates the O(n⁴) inline jobtask × nested COUNT
--- subquery that previously ran inside every calendar-scanning lateral in
--- 1_Job_Task_Details_Table. Must be created before 1_Job_Task_Details_Table.
+-- support_staff_leave_allocation_byday
+-- DAX equivalent: SUPPORT_Staff_Leave_Allocation_byDay
+-- Cross join of leave tasks (key02 Task_Category='Leave Tasks') × key01_calendar_date,
+-- filtered to rows within each task's date range.
+-- Columns match the DAX SUPPORT table used to derive Is_Full_Day_Leave and Is_Day_With_a_Leave.
+-- Must be created before leave_status_by_staff_date (which aggregates from it).
+DROP MATERIALIZED VIEW IF EXISTS support_staff_leave_allocation_byday CASCADE;
+
+
+CREATE MATERIALIZED VIEW support_staff_leave_allocation_byday AS
+-- NOTE: cannot JOIN 1_Job_Task_Details_Table here — that view depends on leave_status_by_staff_date
+-- which in turn depends on this view (circular). Instead we recompute Initial_Avg_Mins_perWorkDay
+-- directly from raw tables using the same logic as 1_Job_Task_Details_Table:
+--   Initial_Avg_Mins_perWorkDay = Task_Allocated_Mins / Workable_Days_Between_Task
+-- StartDateAdjusted / DueDateAdjusted replicated from 1_Job_Task_Details_Table source query.
+WITH leave_tasks AS (
+    SELECT
+        (jt."JobDetailsRemoteID"::text || jt."UUID"::text || jta."UUID"::text) AS "Job_Task_Staff_ID",
+        jta."Name"                                                              AS "Staff_Name",
+        jt."Name"                                                               AS "Task_Name",
+        jta."AllocatedMinutes"::float                                           AS "Task_Allocated_Mins",
+        COALESCE(jt."StartDate", jd."StartDate")                                AS "StartDateAdjusted",
+        COALESCE(
+            jt."DueDate",
+            CASE WHEN jd."CompletedDate" IS NULL THEN jd."DueDate"
+                 ELSE LEAST(jd."CompletedDate", jd."DueDate") END
+        )                                                                       AS "DueDateAdjusted"
+    FROM jobtask jt
+    LEFT JOIN jobtaskassignee jta ON jta."JobTaskID" = jt."RemoteID"::uuid
+    LEFT JOIN jobdetails jd ON jd."RemoteID" = jt."JobDetailsRemoteID"
+    WHERE jt."IsDeleted" = FALSE
+      AND jta."AllocatedMinutes" > 0
+      AND jta."Name" IS NOT NULL
+      AND jta."Name" NOT IN (
+          'Anna Williams','Conor Cameron','Conor O''Brien',
+          'Dinniss','Sahar Sedaghat','The OLD - Dani Millar'
+      )
+      AND (jt."Name" ILIKE '%Holiday%'
+           OR jt."Name" ILIKE '%Sick leave%'
+           OR jt."Name" ILIKE '%Other leave%')
+),
+leave_tasks_with_wdb AS (
+    -- Compute Workable_Days_Between_Task (wdb_cnt) per leave task — same as cal_counts.wdb_cnt
+    -- in 1_Job_Task_Details_Table but without the leave join (no circular dependency here).
+    -- NOTE: wdb_cnt here intentionally ignores leave status of other tasks (no lv join),
+    -- matching the original leave_status_by_staff_date inline computation.
+    SELECT
+        lt.*,
+        lt."Task_Allocated_Mins" / NULLIF(
+            (SELECT COUNT(*)
+             FROM key01_calendar_date wcal
+             WHERE wcal."Date" >= lt."StartDateAdjusted"
+               AND wcal."Date" <= lt."DueDateAdjusted"
+               AND wcal."WeekEnd" = FALSE
+               AND wcal."PublicHoliday" = FALSE
+               AND EXISTS (
+                   SELECT 1 FROM excel_workable_days ewd
+                   WHERE ewd.staffname = lt."Staff_Name"
+                     AND ewd.day_of_week = wcal."Weekday"
+                     AND ewd.working_day = TRUE
+               )
+            ), 0
+        ) AS "Initial_Avg_Mins_perWorkDay"
+    FROM leave_tasks lt
+)
+SELECT
+    c."Date",
+    c."Weekday",
+    c."WeekEnd",
+    c."PublicHoliday",
+    lt."Job_Task_Staff_ID",
+    lt."Staff_Name",
+    lt."Task_Name",
+    -- Is_Staff_Workable_DayOfWeek: LOOKUPVALUE(excel_workable_days[Working Day], Day_of_Week, Staff_Name)
+    COALESCE(wkd.working_day, FALSE) AS "Is_Staff_Workable_DayOfWeek",
+    -- Allo_Leave_Hrs_perWorkday:
+    --   IF(Is_WorkableDay AND Is_DateBetweenTask AND Is_Staff_Workable_DayOfWeek
+    --      AND Initial_Avg_Mins_perWorkDay > 0, Initial_Avg_Mins_perWorkDay / 60, BLANK())
+    CASE
+        WHEN NOT c."WeekEnd"
+        AND NOT c."PublicHoliday"
+        AND COALESCE(wkd.working_day, FALSE)
+        AND COALESCE(lt."Initial_Avg_Mins_perWorkDay", 0) > 0
+        THEN lt."Initial_Avg_Mins_perWorkDay" / 60.0
+    END AS "Allo_Leave_Hrs_perWorkday",
+    -- Full_Leave_Days: IF(Allo_Leave_Hrs_perWorkday = 8, 1, BLANK())
+    CASE
+        WHEN NOT c."WeekEnd"
+        AND NOT c."PublicHoliday"
+        AND COALESCE(wkd.working_day, FALSE)
+        AND lt."Initial_Avg_Mins_perWorkDay" / 60.0 = 8
+        THEN 1
+    END AS "Full_Leave_Days"
+FROM leave_tasks_with_wdb lt
+JOIN key01_calendar_date c
+    ON c."Date" >= lt."StartDateAdjusted"
+    AND c."Date" <= lt."DueDateAdjusted"
+LEFT JOIN (
+    SELECT DISTINCT ON (staffname, day_of_week)
+        staffname, day_of_week, working_day
+    FROM excel_workable_days
+    ORDER BY staffname, day_of_week
+) wkd ON wkd.staffname = lt."Staff_Name"
+     AND wkd.day_of_week = c."Weekday";
+
+
+CREATE INDEX ON support_staff_leave_allocation_byday ("Staff_Name", "Date");
+
+
+-- leave_status_by_staff_date
+-- Aggregates support_staff_leave_allocation_byday per (staff_name, date).
+-- is_full_day       = any leave task has Allo_Leave_Hrs_perWorkday = 8 (Full_Leave_Days = 1)
+-- has_partial_leave = any leave task has Allo_Leave_Hrs_perWorkday >= 1.0 (meaningful partial leave)
+--                     Threshold >= 1.0 hrs/day excludes tiny allocations (e.g., 0.34 hrs) that shouldn't
+--                     affect KPI02 vs KPI03 selection. Used to gate KPI02 (requires FALSE) vs KPI03 (requires TRUE).
+--                     Full-day leave is blocked by is_full_day guard in KPI02/03 anyway.
+-- partial_leave_hrs_per_day = sum of NON-full-day leave hours (used in Rev_Workable_Days calc)
+-- Must be created before 1_Job_Task_Details_Table.
 DROP MATERIALIZED VIEW IF EXISTS leave_status_by_staff_date CASCADE;
 
 
 CREATE MATERIALIZED VIEW leave_status_by_staff_date AS
 SELECT
-    lta."Name" AS staff_name,
-    cal."Date",
-    COALESCE(BOOL_OR(mpd.mins_per_day = 480), FALSE) AS is_full_day,
-    COALESCE(BOOL_OR(mpd.mins_per_day != 480), FALSE) AS has_partial_leave,
-    -- sum of partial-leave hours per day (replaces inline AllocatedMins/WorkableDays/60 in tlh lateral)
-    COALESCE(
-        SUM(
-            CASE
-                WHEN mpd.mins_per_day != 480 THEN mpd.mins_per_day / 60.0
-            END
-        ),
-        0
-    ) AS partial_leave_hrs_per_day
-FROM
-    jobtask lt
-    JOIN jobtaskassignee lta ON lta."JobTaskID" = lt."RemoteID"::uuid
-    LEFT JOIN jobdetails ljd ON ljd."RemoteID"::text = lt."JobDetailsRemoteID"::text
-    CROSS JOIN LATERAL (
-        -- mins_per_day = AllocatedMinutes / WorkableDays(leave task) — computed once per leave task row
-        SELECT
-            lta."AllocatedMinutes"::float / NULLIF(
-                (
-                    SELECT
-                        COUNT(*)
-                    FROM
-                        key01_calendar_date wcal
-                    WHERE
-                        wcal."Date" >= COALESCE(lt."StartDate", ljd."StartDate")
-                        AND wcal."Date" <= COALESCE(
-                            lt."DueDate",
-                            CASE
-                                WHEN ljd."CompletedDate" IS NULL THEN ljd."DueDate"
-                                ELSE LEAST(ljd."CompletedDate", ljd."DueDate")
-                            END
-                        )
-                        AND wcal."WeekEnd" = FALSE
-                        AND wcal."PublicHoliday" = FALSE
-                        AND EXISTS (
-                            SELECT
-                                1
-                            FROM
-                                excel_workable_days lewd
-                            WHERE
-                                lewd.staffname = lta."Name"
-                                AND lewd.day_of_week = wcal."Weekday"
-                                AND lewd.working_day = TRUE
-                        )
-                ),
-                0
-            ) AS mins_per_day
-    ) mpd
-    JOIN key01_calendar_date cal ON cal."Date" >= COALESCE(lt."StartDate", ljd."StartDate")
-    AND cal."Date" <= COALESCE(
-        lt."DueDate",
-        CASE
-            WHEN ljd."CompletedDate" IS NULL THEN ljd."DueDate"
-            ELSE LEAST(ljd."CompletedDate", ljd."DueDate")
+    s."Staff_Name" AS staff_name,
+    s."Date",
+    COALESCE(BOOL_OR(s."Full_Leave_Days" = 1), FALSE)             AS is_full_day,
+    COALESCE(BOOL_OR(s."Allo_Leave_Hrs_perWorkday" >= 1.0), FALSE)   AS has_partial_leave,
+    -- partial hours only (exclude full-day rows): feeds tlh_hrs in 1_Job_Task_Details_Table
+    COALESCE(SUM(
+        CASE WHEN s."Full_Leave_Days" IS NULL
+             THEN s."Allo_Leave_Hrs_perWorkday"
         END
-    )
-WHERE
-    lt."IsDeleted" = FALSE
-    AND lta."AllocatedMinutes" > 0
-    AND (
-        lt."Name" ILIKE '%Holiday%'
-        OR lt."Name" ILIKE '%Sick leave%'
-        OR lt."Name" ILIKE '%Other leave%'
-    )
+    ), 0) AS partial_leave_hrs_per_day
+FROM
+    support_staff_leave_allocation_byday s
 GROUP BY
-    lta."Name",
-    cal."Date";
+    s."Staff_Name",
+    s."Date";
 
 
 CREATE UNIQUE INDEX ON leave_status_by_staff_date (staff_name, "Date");
