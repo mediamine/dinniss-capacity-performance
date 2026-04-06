@@ -291,11 +291,16 @@ SELECT
     jd."State" AS "Job_State",
     jd."StartDate",
     jd."DueDate",
-    jd."CompletedDate"
+    jd."CompletedDate",
+    CASE
+        WHEN jd."CompletedDate" IS NULL THEN jd."DueDate"
+        WHEN jd."CompletedDate" < jd."DueDate" THEN jd."CompletedDate"
+        ELSE jd."DueDate"
+    END AS "EarlierDate"
 FROM
     jobdetails jd
     LEFT JOIN clientdetails cd ON cd."UUID" = jd."ClientUUID"::uuid
-    LEFT JOIN jobassignee ja ON ja."JobID" = jd."RemoteID";
+    LEFT JOIN jobassignee ja ON ja."JobID" = jd."ID";
 
 
 CREATE INDEX ON key03_staff_table ("Staff_Name");
