@@ -18,6 +18,15 @@
 --  10. KEY02_Job_Task_Staff_ID_base_1      (depends on #9, #2, key06_job_table from 01)
 --  11. KEY02_Job_Task_Staff_ID_base_2      (depends on #10, key05_task_type from 01)
 --  12. KEY02_Job_Task_Staff_ID             (depends on #11)
+--  13. SUPPORT_Staff_Leave_Allocation_byDay_base (depends on #12, key01_calendar_date from 01)
+--  14. SUPPORT_Staff_Leave_Allocation_byDay_base_1 (depends on #13, #2, EXCEL01_Staff_Workable_Days from 021)
+--  15. SUPPORT_Staff_Leave_Allocation_byDay_base_2 (depends on #14)
+--  16. SUPPORT_Job_Leave_Task_Details_Table_base (depends on base tables jobtask, jobtaskassignee, jobdetails, TOCHECK_ClientDetails from 015)
+--  17. SUPPORT_Job_Leave_Task_Details_Table_base_1 (depends on #16, key06_job_table from 01)
+--
+-- Note: SUPPORT_Job_Leave_Task_Details_Table, SUPPORT_Staff_Leave_Allocation_byDay are created in 026_create_materialized_views.sql
+--
+-- Note: View layers 2_Staff_Task_Allocation_byDay_base, 2_Staff_Task_Allocation_byDay_base_1, 2_Staff_Task_Allocation_byDay, and 3_Staff_Performance_Table_base are created in 026_create_materialized_views.sql
 --
 -- TODO: Optimization refactoring needed (Phase 1 - Quick wins):
 --   - Task_Category: Move from base_2 to base_1 (only depends on Task_Name, Client_Name available in base_1)
@@ -1116,3 +1125,253 @@ FROM
 CREATE INDEX ON KEY02_Job_Task_Staff_ID ("Job_Task_Staff_ID");
 CREATE INDEX ON KEY02_Job_Task_Staff_ID ("Job_ID");
 CREATE INDEX ON KEY02_Job_Task_Staff_ID ("Staff_Name");
+
+
+-- SUPPORT_Staff_Leave_Allocation_byDay_base
+-- DAX equivalent: SUPPORT_Staff_Leave_Allocation_byDay = FILTER(CROSSJOIN(KEY02_Job_Task_Staff_ID, KEY01_CalendarDate), KEY02_Job_Task_Staff_ID[Task_Category]="Leave Tasks")
+-- Support view combining every calendar date with every leave task assignment.
+-- Filtered to include only rows where Task_Category = "Leave Tasks" for leave allocation tracking.
+-- Dependencies: KEY02_Job_Task_Staff_ID, key01_calendar_date (from 01_create_views.sql)
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay_base CASCADE;
+
+
+CREATE MATERIALIZED VIEW SUPPORT_Staff_Leave_Allocation_byDay_base AS
+SELECT
+    k."Job_Task_Staff_ID",
+    k."Job_ID",
+    k."Staff_Name",
+    k."StartDateAdjusted",
+    k."DueDateAdjusted",
+    k."Task_Name",
+    k."Client_Name",
+    k."Job_Name",
+    k."Task_Category",
+    k."Task_Type1",
+    k."Task_Type",
+    c."Date",
+    c."PublicHoliday",
+    c."Weekday",
+    c."WeekEnd",
+    c."StartOfMonth",
+    c."EndOfMonth",
+    c."Is_Range_for_Invoicing"
+FROM
+    KEY02_Job_Task_Staff_ID k
+    CROSS JOIN key01_calendar_date c
+WHERE
+    k."Task_Category" = 'Leave Tasks';
+
+
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base ("Date");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base ("Staff_Name");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base ("Job_Task_Staff_ID");
+
+
+-- SUPPORT_Staff_Leave_Allocation_byDay_base_1
+-- DAX equivalent: Extended leave allocation view with workability and staff schedule validation
+-- Extends SUPPORT_Staff_Leave_Allocation_byDay_base with workability, adjusted dates, and staff workable day-of-week lookup.
+-- Dependencies: SUPPORT_Staff_Leave_Allocation_byDay_base, 1_Job_Task_Details_Table, EXCEL01_Staff_Workable_Days (from 021_create_materialized_views.sql)
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay_base_1 CASCADE;
+
+
+CREATE MATERIALIZED VIEW SUPPORT_Staff_Leave_Allocation_byDay_base_1 AS
+SELECT
+    b."Job_Task_Staff_ID",
+    b."Job_ID",
+    b."Staff_Name",
+    b."StartDateAdjusted",
+    b."DueDateAdjusted",
+    b."Task_Name",
+    b."Client_Name",
+    b."Job_Name",
+    b."Task_Category",
+    b."Task_Type1",
+    b."Task_Type",
+    b."Date",
+    b."PublicHoliday",
+    b."Weekday",
+    b."WeekEnd",
+    b."StartOfMonth",
+    b."EndOfMonth",
+    b."Is_Range_for_Invoicing",
+    -- Is_WorkableDay: IF(AND(WeekEnd=FALSE, PublicHoliday=FALSE), TRUE, FALSE)
+    CASE
+        WHEN b."WeekEnd" = FALSE AND b."PublicHoliday" = FALSE THEN TRUE
+        ELSE FALSE
+    END AS "Is_WorkableDay",
+    -- AdjustedStartDate: LOOKUPVALUE(1_Job_Task_Details_Table[StartDateAdjusted], 1_Job_Task_Details_Table[Job_Task_Staff_ID], Job_Task_Staff_ID)
+    COALESCE(
+        (SELECT DISTINCT ON (jt."Job_Task_Staff_ID")
+            jt."StartDateAdjusted"
+         FROM "1_Job_Task_Details_Table" jt
+         WHERE jt."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
+         LIMIT 1),
+        b."StartDateAdjusted"
+    ) AS "AdjustedStartDate",
+    -- AdjustedDueDate: LOOKUPVALUE(1_Job_Task_Details_Table[DueDateAdjusted], 1_Job_Task_Details_Table[Job_Task_Staff_ID], Job_Task_Staff_ID)
+    COALESCE(
+        (SELECT DISTINCT ON (jt."Job_Task_Staff_ID")
+            jt."DueDateAdjusted"
+         FROM "1_Job_Task_Details_Table" jt
+         WHERE jt."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
+         LIMIT 1),
+        b."DueDateAdjusted"
+    ) AS "AdjustedDueDate",
+    -- Is_Staff_Workable_DayOfWeek: LOOKUPVALUE(EXCEL01_Staff_Workable_Days[Working Day], EXCEL01_Staff_Workable_Days[Day of Week], Weekday, EXCEL01_Staff_Workable_Days[StaffName], Staff_Name)
+    COALESCE(
+        (SELECT DISTINCT ON (e."Day of Week", e."StaffName")
+            e."Working Day"
+         FROM EXCEL01_Staff_Workable_Days e
+         WHERE e."Day of Week" = b."Weekday" AND e."StaffName" = b."Staff_Name"
+         LIMIT 1),
+        FALSE
+    ) AS "Is_Staff_Workable_DayOfWeek"
+FROM
+    SUPPORT_Staff_Leave_Allocation_byDay_base b;
+
+
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_1 ("Date");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_1 ("Staff_Name");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_1 ("Job_Task_Staff_ID");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_1 ("Is_WorkableDay");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_1 ("Is_Staff_Workable_DayOfWeek");
+
+
+-- SUPPORT_Staff_Leave_Allocation_byDay_base_2
+-- DAX equivalent: Leave allocation view with date range validation
+-- Extends SUPPORT_Staff_Leave_Allocation_byDay_base_1 with date range filtering.
+-- Dependencies: SUPPORT_Staff_Leave_Allocation_byDay_base_1
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay_base_2 CASCADE;
+
+
+CREATE MATERIALIZED VIEW SUPPORT_Staff_Leave_Allocation_byDay_base_2 AS
+SELECT
+    b."Job_Task_Staff_ID",
+    b."Job_ID",
+    b."Staff_Name",
+    b."StartDateAdjusted",
+    b."DueDateAdjusted",
+    b."Task_Name",
+    b."Client_Name",
+    b."Job_Name",
+    b."Task_Category",
+    b."Task_Type1",
+    b."Task_Type",
+    b."Date",
+    b."PublicHoliday",
+    b."Weekday",
+    b."WeekEnd",
+    b."StartOfMonth",
+    b."EndOfMonth",
+    b."Is_Range_for_Invoicing",
+    b."Is_WorkableDay",
+    b."AdjustedStartDate",
+    b."AdjustedDueDate",
+    b."Is_Staff_Workable_DayOfWeek",
+    -- Is_DateBetweenTask: IF(AND(Date >= AdjustedStartDate, Date <= AdjustedDueDate), TRUE, FALSE)
+    CASE
+        WHEN b."Date" >= b."AdjustedStartDate" AND b."Date" <= b."AdjustedDueDate" THEN TRUE
+        ELSE FALSE
+    END AS "Is_DateBetweenTask"
+FROM
+    SUPPORT_Staff_Leave_Allocation_byDay_base_1 b;
+
+
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_2 ("Date");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_2 ("Staff_Name");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_2 ("Job_Task_Staff_ID");
+CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_2 ("Is_DateBetweenTask");
+
+
+-- SUPPORT_Job_Leave_Task_Details_Table_base
+-- Power Query equivalent: Transforms jobtask and jobtaskassignee records with client details, filtered to leave tasks only
+-- Combines job task details with staff assignments, filtered to leave task types (Holiday, Sick leave, Other leave).
+-- Only includes records with allocated minutes > 0 and specific staff members.
+-- Dependencies: base tables (jobtask, jobtaskassignee, jobdetails, TOCHECK_ClientDetails from 015_create_materialized_views.sql)
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table_base CASCADE;
+
+
+CREATE MATERIALIZED VIEW SUPPORT_Job_Leave_Task_Details_Table_base AS
+SELECT
+    (jt."JobDetailsRemoteID"::TEXT || jt."UUID"::TEXT || jta."UUID"::TEXT) AS "Job_Task_Staff_ID",
+    jt."JobDetailsRemoteID"::TEXT AS "Job_ID",
+    jt."Name" AS "Task_Name",
+    jt."UUID"::TEXT AS "Task_UUID",
+    jta."Name" AS "Staff_Name",
+    jta."UUID"::TEXT AS "Staff_UUID",
+    cd."Name" AS "Client_Name",
+    jt."StartDate",
+    jt."DueDate",
+    jta."AllocatedMinutes" AS "Task_Allocated_Mins",
+    jta."AllocatedMinutes" AS "Initial_Avg_Mins_perWorkDay"
+FROM
+    jobtask jt
+    LEFT JOIN jobtaskassignee jta ON jta."JobTaskID" = jt."UUID"
+    LEFT JOIN jobdetails jd ON jd."ID" = jt."JobDetailsRemoteID"
+    LEFT JOIN TOCHECK_ClientDetails cd ON cd."UUID" = jd."ClientUUID"
+WHERE
+    jta."Name" IN ('Carl Patton', 'Dan Sharpe', 'Dani Millar', 'Dave Simmons', 'Greta Sutcliffe', 'Marty Dinniss', 'Meagan Robertson', 'Ruby Rowe')
+    AND (jt."Name" ILIKE '%Holiday%' OR jt."Name" ILIKE '%Sick leave%' OR jt."Name" ILIKE '%Other leave%')
+    AND jta."AllocatedMinutes" <> 0
+    AND (jt."IsDeleted"::TEXT NOT IN ('true', 'True', '1') OR jt."IsDeleted" IS NULL)
+    AND (jta."IsDeleted"::TEXT NOT IN ('true', 'True', '1') OR jta."IsDeleted" IS NULL);
+
+
+CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base ("Job_Task_Staff_ID");
+CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base ("Staff_Name");
+CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base ("Job_ID");
+
+
+-- SUPPORT_Job_Leave_Task_Details_Table_base_1
+-- DAX equivalent: Leave task details with adjusted start and due dates
+-- Extends SUPPORT_Job_Leave_Task_Details_Table_base with adjusted date lookups from job details.
+-- Dependencies: SUPPORT_Job_Leave_Task_Details_Table_base, key06_job_table (from 01_create_views.sql)
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table_base_1 CASCADE;
+
+
+CREATE MATERIALIZED VIEW SUPPORT_Job_Leave_Task_Details_Table_base_1 AS
+SELECT
+    b."Job_Task_Staff_ID",
+    b."Job_ID",
+    b."Task_Name",
+    b."Task_UUID",
+    b."Staff_Name",
+    b."Staff_UUID",
+    b."Client_Name",
+    b."StartDate",
+    b."DueDate",
+    b."Task_Allocated_Mins",
+    b."Initial_Avg_Mins_perWorkDay",
+    -- StartDateAdjusted: IF(ISBLANK(StartDate), LOOKUPVALUE(KEY06_Job_Table[StartDate], KEY06_Job_Table[Job_ID], Job_ID), StartDate)
+    COALESCE(
+        b."StartDate",
+        (SELECT DISTINCT ON (k6."Job_ID")
+            k6."StartDate"
+         FROM key06_job_table k6
+         WHERE k6."Job_ID" = b."Job_ID"
+         LIMIT 1)
+    ) AS "StartDateAdjusted",
+    -- DueDateAdjusted: IF(ISBLANK(DueDate), LOOKUPVALUE(KEY06_Job_Table[EarlierDate], KEY06_Job_Table[Job_ID], Job_ID), DueDate)
+    COALESCE(
+        b."DueDate",
+        (SELECT DISTINCT ON (k6."Job_ID")
+            k6."EarlierDate"
+         FROM key06_job_table k6
+         WHERE k6."Job_ID" = b."Job_ID"
+         LIMIT 1)
+    ) AS "DueDateAdjusted"
+FROM
+    SUPPORT_Job_Leave_Task_Details_Table_base b;
+
+
+CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base_1 ("Job_Task_Staff_ID");
+CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base_1 ("Staff_Name");
+CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base_1 ("Job_ID");
+
+
+-- Note: SUPPORT_Staff_Leave_Allocation_byDay is created in 026_create_materialized_views.sql
