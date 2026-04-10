@@ -1,12 +1,12 @@
 -- =============================================================================
 -- MATERIALIZED VIEWS - Excel-Based Reference Tables
 -- =============================================================================
--- Run AFTER 01_create_views.sql and 015_create_materialized_views.sql
+-- Run AFTER 010_create_views.sql and 015_create_materialized_views.sql
 -- These views source from Excel workbooks synced from SharePoint and provide
 -- reference data for staff workable days, targets, public holidays, budgets,
 -- adjustments, recorded/invoiced hours, and incentive targets.
 --
--- For daily refresh use 03_refresh_materialized_views.sql instead.
+-- For daily refresh use 030_refresh_materialized_views.sql instead.
 -- Only re-run this file when the view structure changes (adding/changing columns).
 --
 -- Creation order (dependency chain):

@@ -96,7 +96,7 @@
 -- =============================================================================
 -- MATERIALIZED VIEWS: Key reference tables
 -- All views in this file are MATERIALIZED for performance optimization.
--- Run this file once during initial setup, then use 03_refresh_materialized_views.sql
+-- Run this file once during initial setup, then use 030_refresh_materialized_views.sql
 -- for daily refresh via REFRESH MATERIALIZED VIEW CONCURRENTLY.
 -- =============================================================================
 -- Independent materialized views (no circular dependencies)

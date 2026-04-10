@@ -1,21 +1,20 @@
 -- =============================================================================
 -- MATERIALIZED VIEWS - Staff Task Allocation by Day
 -- =============================================================================
--- Run AFTER 01_create_views.sql and 025_create_materialized_views.sql
+-- Run AFTER 010_create_views.sql and 025_create_materialized_views.sql
 -- This view creates the per-day task allocation matrix by cross-joining calendar dates
 -- with unique job-task-staff combinations. It serves as the foundation for per-day
 -- allocation calculations and staff performance metrics.
 --
--- For daily refresh use 03_refresh_materialized_views.sql instead.
+-- For daily refresh use 030_refresh_materialized_views.sql instead.
 --
 -- Creation order (dependency chain):
---   1. 2_Staff_Task_Allocation_byDay_base  (depends on key01_calendar_date from 01_create_views.sql, KEY02_Job_Task_Staff_ID from 025_create_materialized_views.sql)
---   2. 2_Staff_Task_Allocation_byDay_base_1 (depends on #1, 1_Job_Task_Details_Table from 025_create_materialized_views.sql)
---   3. 2_Staff_Task_Allocation_byDay       (depends on #2, EXCEL01_Staff_Workable_Days from 021_create_materialized_views.sql)
---   4. 3_Staff_Performance_Table_base      (depends on key01_calendar_date, key03_staff_table from 01_create_views.sql)
---   5. SUPPORT_Job_Leave_Task_Details_Table_base_2 (depends on SUPPORT_Job_Leave_Task_Details_Table_base_1 from 025, #3)
---   6. SUPPORT_Job_Leave_Task_Details_Table (depends on #5)
---   7. SUPPORT_Staff_Leave_Allocation_byDay (depends on SUPPORT_Staff_Leave_Allocation_byDay_base_2 from 025, #6)
+--   1. 2_Staff_Task_Allocation_byDay_base  (depends on key01_calendar_date from 010_create_views.sql, KEY02_Job_Task_Staff_ID from 025_create_materialized_views.sql)
+--   2. 2_Staff_Task_Allocation_byDay       (depends on #1, 1_Job_Task_Details_Table from 025_create_materialized_views.sql, EXCEL01_Staff_Workable_Days from 021_create_materialized_views.sql; uses CTE + LEFT JOIN to consolidate intermediate calculations into a single MV write)
+--   3. 3_Staff_Performance_Table_base      (depends on key01_calendar_date, key03_staff_table from 010_create_views.sql)
+--   4. SUPPORT_Job_Leave_Task_Details_Table_base_2 (depends on SUPPORT_Job_Leave_Task_Details_Table_base_1 from 025, #2)
+--   5. SUPPORT_Job_Leave_Task_Details_Table (depends on #4)
+--   6. SUPPORT_Staff_Leave_Allocation_byDay (depends on SUPPORT_Staff_Leave_Allocation_byDay_base_2 from 025, #5)
 --
 -- Note: SUPPORT_Staff_Leave_Allocation_byDay_base and SUPPORT_Staff_Leave_Allocation_byDay_base_2 are created in 025_create_materialized_views.sql
 -- =============================================================================
@@ -23,7 +22,7 @@
 -- DAX equivalent: 2_Staff_Task_Allocation_byDay = CROSSJOIN(KEY01_CalendarDate, KEY02_Job_Task_Staff_ID)
 -- Base view combining every calendar date with every unique job-task-staff combination.
 -- This creates the foundation for per-day task allocation calculations.
--- Dependencies: key01_calendar_date (from 01_create_views.sql), KEY02_Job_Task_Staff_ID (from 025_create_materialized_views.sql)
+-- Dependencies: key01_calendar_date (from 010_create_views.sql), KEY02_Job_Task_Staff_ID (from 025_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay_base" CASCADE;
 
 
@@ -57,125 +56,103 @@ CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base" ("Job_Task_Staff_ID");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base" ("Staff_Name");
 
 
--- 2_Staff_Task_Allocation_byDay_base_1
--- DAX equivalent: Extended allocation view with task date range and client validation
--- Extends 2_Staff_Task_Allocation_byDay_base with task date range validation and client classification.
--- Dependencies: 2_Staff_Task_Allocation_byDay_base (#1), 1_Job_Task_Details_Table (from 025_create_materialized_views.sql)
-DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay" CASCADE;
-DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay_base_1" CASCADE;
-
-
-CREATE MATERIALIZED VIEW "2_Staff_Task_Allocation_byDay_base_1" AS
-SELECT
-    b."Date",
-    b."PublicHoliday",
-    b."Weekday",
-    b."WeekEnd",
-    b."StartOfMonth",
-    b."EndOfMonth",
-    b."Is_Range_for_Invoicing",
-    b."Job_Task_Staff_ID",
-    b."Job_ID",
-    b."Staff_Name",
-    -- StartDateAdjusted: LOOKUPVALUE(1_Job_Task_Details_Table[StartDateAdjusted], 1_Job_Task_Details_Table[Job_Task_Staff_ID], Job_Task_Staff_ID)
-    COALESCE(
-        (SELECT DISTINCT ON (jt."Job_Task_Staff_ID")
-            jt."StartDateAdjusted"
-         FROM "1_Job_Task_Details_Table" jt
-         WHERE jt."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
-         LIMIT 1),
-        b."StartDateAdjusted"
-    ) AS "StartDateAdjusted",
-    -- DueDateAdjusted: LOOKUPVALUE(1_Job_Task_Details_Table[DueDateAdjusted], 1_Job_Task_Details_Table[Job_Task_Staff_ID], Job_Task_Staff_ID)
-    COALESCE(
-        (SELECT DISTINCT ON (jt."Job_Task_Staff_ID")
-            jt."DueDateAdjusted"
-         FROM "1_Job_Task_Details_Table" jt
-         WHERE jt."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
-         LIMIT 1),
-        b."DueDateAdjusted"
-    ) AS "DueDateAdjusted",
-    b."Task_Name",
-    b."Client_Name",
-    b."Job_Name",
-    b."Task_Category",
-    b."Task_Type1",
-    b."Task_Type",
-    -- Is_Client: IF(OR(Client_Name="Dinniss Admin", Task_Type1="Admin - Non-billable"), FALSE, TRUE)
-    CASE
-        WHEN b."Client_Name" = 'Dinniss Admin' OR b."Task_Type1" ILIKE '%Admin - Non-billable%' THEN FALSE
-        ELSE TRUE
-    END AS "Is_Client"
-FROM
-    "2_Staff_Task_Allocation_byDay_base" b;
-
-
-CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Date");
-CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Job_Task_Staff_ID");
-CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Staff_Name");
-CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Is_Client");
-
-
 -- 2_Staff_Task_Allocation_byDay
--- DAX equivalent: Daily task allocation with workability and billability flags
--- Extends 2_Staff_Task_Allocation_byDay_base_1 with workability and billability calculations.
--- Dependencies: 2_Staff_Task_Allocation_byDay_base_1 (#2), EXCEL01_Staff_Workable_Days (from 021_create_materialized_views.sql)
+-- DAX equivalent: Daily task allocation with task date range, client, workability and billability flags
+-- Extends 2_Staff_Task_Allocation_byDay_base with task date range validation, client classification,
+-- workability, and billability calculations — all consolidated into a single MV write.
+--
+-- Previously built via two separate MVs (_base_1 + final) with per-row correlated subqueries.
+-- Rewritten to use CTEs + LEFT JOIN so PostgreSQL can build a hash table once per lookup
+-- and probe it O(1) per row, instead of doing a B-tree lookup for every single row.
+-- The _r-suffixed columns inside the `enriched` CTE exist so the outer SELECT can reference
+-- computed values (e.g., Is_Billable depends on Is_Client_r).
+--
+-- Dependencies: 2_Staff_Task_Allocation_byDay_base (#1), 1_Job_Task_Details_Table (from 025_create_materialized_views.sql),
+--               EXCEL01_Staff_Workable_Days (from 021_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay" CASCADE;
 
 
 CREATE MATERIALIZED VIEW "2_Staff_Task_Allocation_byDay" AS
+WITH jtd AS (
+    -- Deduplicate 1_Job_Task_Details_Table by Job_Task_Staff_ID (preserves LIMIT 1 semantics)
+    SELECT DISTINCT ON ("Job_Task_Staff_ID")
+        "Job_Task_Staff_ID",
+        "StartDateAdjusted",
+        "DueDateAdjusted"
+    FROM "1_Job_Task_Details_Table"
+    ORDER BY "Job_Task_Staff_ID"
+),
+wd AS (
+    -- Deduplicate EXCEL01_Staff_Workable_Days by (Day of Week, StaffName)
+    SELECT DISTINCT ON ("Day of Week", "StaffName")
+        "Day of Week",
+        "StaffName",
+        "Working Day"
+    FROM EXCEL01_Staff_Workable_Days
+    ORDER BY "Day of Week", "StaffName"
+),
+enriched AS (
+    SELECT
+        b.*,
+        -- StartDateAdjusted: LOOKUPVALUE(1_Job_Task_Details_Table[StartDateAdjusted], Job_Task_Staff_ID)
+        COALESCE(j."StartDateAdjusted", b."StartDateAdjusted") AS "StartDateAdjusted_r",
+        -- DueDateAdjusted: LOOKUPVALUE(1_Job_Task_Details_Table[DueDateAdjusted], Job_Task_Staff_ID)
+        COALESCE(j."DueDateAdjusted",   b."DueDateAdjusted")   AS "DueDateAdjusted_r",
+        -- Is_Staff_Workable_DayOfWeek: LOOKUPVALUE(EXCEL01_Staff_Workable_Days[Working Day], Day of Week, Weekday, StaffName, Staff_Name)
+        COALESCE(w."Working Day", FALSE)                        AS "Is_Staff_Workable_DayOfWeek_r",
+        -- Is_Client: IF(OR(Client_Name="Dinniss Admin", Task_Type1="Admin - Non-billable"), FALSE, TRUE)
+        CASE
+            WHEN b."Client_Name" = 'Dinniss Admin'
+              OR b."Task_Type1" ILIKE '%Admin - Non-billable%' THEN FALSE
+            ELSE TRUE
+        END AS "Is_Client_r"
+    FROM "2_Staff_Task_Allocation_byDay_base" b
+    LEFT JOIN jtd j ON j."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
+    LEFT JOIN wd  w ON w."Day of Week" = b."Weekday" AND w."StaffName" = b."Staff_Name"
+)
 SELECT
-    b."Date",
-    b."PublicHoliday",
-    b."Weekday",
-    b."WeekEnd",
-    b."StartOfMonth",
-    b."EndOfMonth",
-    b."Is_Range_for_Invoicing",
-    b."Job_Task_Staff_ID",
-    b."Job_ID",
-    b."Staff_Name",
-    b."StartDateAdjusted",
-    b."DueDateAdjusted",
-    b."Task_Name",
-    b."Client_Name",
-    b."Job_Name",
-    b."Task_Category",
-    b."Task_Type1",
-    b."Task_Type",
-    b."Is_Client",
+    "Date",
+    "PublicHoliday",
+    "Weekday",
+    "WeekEnd",
+    "StartOfMonth",
+    "EndOfMonth",
+    "Is_Range_for_Invoicing",
+    "Job_Task_Staff_ID",
+    "Job_ID",
+    "Staff_Name",
+    "StartDateAdjusted_r" AS "StartDateAdjusted",
+    "DueDateAdjusted_r"   AS "DueDateAdjusted",
+    "Task_Name",
+    "Client_Name",
+    "Job_Name",
+    "Task_Category",
+    "Task_Type1",
+    "Task_Type",
+    "Is_Client_r" AS "Is_Client",
     -- Is_Billable: IF(OR(Is_Client=FALSE, Task_Type1="Coaching"), FALSE, TRUE)
     CASE
-        WHEN b."Is_Client" = FALSE OR b."Task_Type1" ILIKE '%Coaching%' THEN FALSE
+        WHEN "Is_Client_r" = FALSE OR "Task_Type1" ILIKE '%Coaching%' THEN FALSE
         ELSE TRUE
     END AS "Is_Billable",
     -- Is_Workable_Day: IF(AND(WeekEnd=FALSE, PublicHoliday=FALSE), TRUE, FALSE)
     CASE
-        WHEN b."WeekEnd" = FALSE AND b."PublicHoliday" = FALSE THEN TRUE
+        WHEN "WeekEnd" = FALSE AND "PublicHoliday" = FALSE THEN TRUE
         ELSE FALSE
     END AS "Is_Workable_Day",
     -- Is_Date_Between_Task_Days: IF(AND(Date >= StartDateAdjusted, Date <= DueDateAdjusted), TRUE, FALSE)
     CASE
-        WHEN b."Date" >= b."StartDateAdjusted" AND b."Date" <= b."DueDateAdjusted" THEN TRUE
+        WHEN "Date" >= "StartDateAdjusted_r" AND "Date" <= "DueDateAdjusted_r" THEN TRUE
         ELSE FALSE
     END AS "Is_Date_Between_Task_Days",
-    -- Is_Staff_Workable_DayOfWeek: LOOKUPVALUE(EXCEL01_Staff_Workable_Days[Working Day], EXCEL01_Staff_Workable_Days[Day of Week], Weekday, EXCEL01_Staff_Workable_Days[StaffName], Staff_Name)
-    COALESCE(
-        (SELECT DISTINCT ON (e."Day of Week", e."StaffName")
-            e."Working Day"
-         FROM EXCEL01_Staff_Workable_Days e
-         WHERE e."Day of Week" = b."Weekday" AND e."StaffName" = b."Staff_Name"
-         LIMIT 1),
-        FALSE
-    ) AS "Is_Staff_Workable_DayOfWeek",
+    "Is_Staff_Workable_DayOfWeek_r" AS "Is_Staff_Workable_DayOfWeek",
     -- Is_Task_a_Leave: IF(OR(CONTAINSSTRING(Task_Name, "Holiday"), CONTAINSSTRING(Task_Name, "Sick Leave")), TRUE, IF(CONTAINSSTRING(Task_Name, "Other leave"), TRUE, FALSE))
     CASE
-        WHEN b."Task_Name" ILIKE '%Holiday%' OR b."Task_Name" ILIKE '%Sick Leave%' THEN TRUE
-        WHEN b."Task_Name" ILIKE '%Other leave%' THEN TRUE
+        WHEN "Task_Name" ILIKE '%Holiday%' OR "Task_Name" ILIKE '%Sick Leave%' THEN TRUE
+        WHEN "Task_Name" ILIKE '%Other leave%' THEN TRUE
         ELSE FALSE
     END AS "Is_Task_a_Leave"
-FROM
-    "2_Staff_Task_Allocation_byDay_base_1" b;
+FROM enriched;
 
 
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Date");
@@ -189,7 +166,7 @@ CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Is_Workable_Day");
 -- DAX equivalent: 3_Staff_Performance_Table = CROSSJOIN(KEY01_CalendarDate, KEY03_Staff_Table)
 -- Base view combining every calendar date with every unique staff member.
 -- This creates the foundation for per-day staff performance metrics and utilization calculations.
--- Dependencies: key01_calendar_date, key03_staff_table (from 01_create_views.sql)
+-- Dependencies: key01_calendar_date, key03_staff_table (from 010_create_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "3_Staff_Performance_Table_base" CASCADE;
 
 

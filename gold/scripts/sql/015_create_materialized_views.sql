@@ -1,15 +1,15 @@
 -- =============================================================================
 -- MATERIALIZED VIEWS - Support Tables for Invoice Processing
 -- =============================================================================
--- Run AFTER 01_create_views.sql
+-- Run AFTER 010_create_views.sql
 -- These views support invoice-related calculations and lookups.
--- For daily refresh use 03_refresh_materialized_views.sql instead.
+-- For daily refresh use 030_refresh_materialized_views.sql instead.
 --
 -- Creation order (dependency chain):
 --   1. TOCHECK_ClientDetails               (depends on clientdetails base table)
 --   2. tocheck_clientdetails_2             (depends on clientdetails base table)
 --   3. TOCHECK_JobWithFinalInvoice         (depends on invoice base table)
---   4. TOCHECK_Invoice                     (depends on invoice base table, key06_job_table from 01_create_views.sql)
+--   4. TOCHECK_Invoice                     (depends on invoice base table, key06_job_table from 010_create_views.sql)
 --   5. SUPPORT_Invoice_Task_Table          (depends on invoicetask base table, #4 TOCHECK_Invoice)
 --   6. SUPPORT_InvoiceTaskUUID_MultipleStaff (hardcoded UUID list, no dependencies)
 -- =============================================================================
@@ -188,7 +188,7 @@ CREATE INDEX ON TOCHECK_JobWithFinalInvoice ("JobText");
 -- TOCHECK_Invoice
 -- DAX equivalent: TOCHECK_Invoice
 -- Lookup table for invoices from the invoice table with client details.
--- Dependencies: invoice base table, key06_job_table (from 01_create_views.sql)
+-- Dependencies: invoice base table, key06_job_table (from 010_create_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS TOCHECK_Invoice CASCADE;
 
 
