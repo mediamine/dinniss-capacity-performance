@@ -235,21 +235,64 @@ def generate_schema_documentation(connection_string: str, output_file: str = 'sc
             f.write(mv_def)
             f.write("\n\n")
 
-            # Get columns
+            # Get columns from pg_attribute (information_schema.columns does NOT
+            # include materialized views in PostgreSQL).
             cursor.execute("""
-                SELECT column_name, data_type
-                FROM information_schema.columns
-                WHERE table_name = %s
-                ORDER BY ordinal_position
+                SELECT
+                    a.attname,
+                    format_type(a.atttypid, a.atttypmod),
+                    NOT a.attnotnull
+                FROM pg_attribute a
+                JOIN pg_class c ON a.attrelid = c.oid
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                WHERE n.nspname = 'public'
+                AND c.relname = %s
+                AND c.relkind = 'm'
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+                ORDER BY a.attnum
             """, (mv_name,))
+
             f.write("Columns:\n")
+            f.write(f"{'Column Name':<40} {'Type':<25} {'Nullable':<10}\n")
+            f.write("-" * 80 + "\n")
             for col in cursor.fetchall():
-                f.write(f"  - {col[0]} ({col[1]})\n")
+                col_name = col[0]
+                data_type = col[1]
+                nullable = "YES" if col[2] else "NO"
+                f.write(f"{col_name:<40} {data_type:<25} {nullable:<10}\n")
+
+            # Get indexes on this materialized view
+            cursor.execute("""
+                SELECT indexname, indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                AND tablename = %s
+                ORDER BY indexname
+            """, (mv_name,))
+            mv_indexes = cursor.fetchall()
+            if mv_indexes:
+                f.write("\nIndexes:\n")
+                for idx in mv_indexes:
+                    f.write(f"  {idx[0]}\n")
+                    f.write(f"    {idx[1]}\n")
 
             # Get row count
             cursor.execute(f'SELECT COUNT(*) FROM "{mv_name}"')
             row_count = cursor.fetchone()[0]
             f.write(f"\nRow Count: {row_count:,}\n")
+
+            # Get sample data (first 3 rows)
+            if row_count > 0:
+                cursor.execute(f'SELECT * FROM "{mv_name}" LIMIT 3')
+                sample_data = cursor.fetchall()
+                col_names = [desc[0] for desc in cursor.description]
+
+                f.write("\nSample Data (first 3 rows):\n")
+                f.write(", ".join(col_names[:5]) + ("..." if len(col_names) > 5 else "") + "\n")
+                for row in sample_data:
+                    sample_row = [str(v)[:20] if v is not None else "NULL" for v in row[:5]]
+                    f.write(", ".join(sample_row) + ("..." if len(row) > 5 else "") + "\n")
 
             f.write("\n" + "=" * 80 + "\n")
 
