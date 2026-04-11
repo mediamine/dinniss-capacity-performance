@@ -437,14 +437,15 @@ CREATE INDEX ON "1_Job_Task_Details_Table_base" ("Job_ID");
 CREATE INDEX ON "1_Job_Task_Details_Table_base" ("Staff_Name");
 
 
--- 1_Job_Task_Details_Table
--- DAX equivalent: 1_Job_Task_Details_Table
+-- 1_Job_Task_Details_Table_base_1
+-- DAX equivalent: 1_Job_Task_Details_Table (base layer before computed columns added in 026)
 -- Extended view with task type and adjusted date columns.
 -- Dependencies: 1_Job_Task_Details_Table_base, key04_task_name, key06_job_table (from 010_create_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table" CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table_base_1" CASCADE;
 
 
-CREATE MATERIALIZED VIEW "1_Job_Task_Details_Table" AS
+CREATE MATERIALIZED VIEW "1_Job_Task_Details_Table_base_1" AS
 SELECT
     b."Job_Task_Staff_ID",
     b."Job_ID",
@@ -485,9 +486,9 @@ FROM
     ) kj ON kj."Job_ID" = b."Job_ID";
 
 
-CREATE INDEX ON "1_Job_Task_Details_Table" ("Job_Task_Staff_ID");
-CREATE INDEX ON "1_Job_Task_Details_Table" ("Job_ID");
-CREATE INDEX ON "1_Job_Task_Details_Table" ("Staff_Name");
+CREATE INDEX ON "1_Job_Task_Details_Table_base_1" ("Job_Task_Staff_ID");
+CREATE INDEX ON "1_Job_Task_Details_Table_base_1" ("Job_ID");
+CREATE INDEX ON "1_Job_Task_Details_Table_base_1" ("Staff_Name");
 
 
 -- 4_Timesheet_Table_base
@@ -551,7 +552,7 @@ SELECT
     COALESCE(
         (SELECT DISTINCT ON ("Job_Task_Staff_ID")
             "Task_Name"
-         FROM "1_Job_Task_Details_Table"
+         FROM "1_Job_Task_Details_Table_base_1"
          WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
          ORDER BY "Job_Task_Staff_ID"
          LIMIT 1),
@@ -566,7 +567,7 @@ SELECT
     COALESCE(
         (SELECT DISTINCT ON ("Job_Task_Staff_ID")
             "Client_Name"
-         FROM "1_Job_Task_Details_Table"
+         FROM "1_Job_Task_Details_Table_base_1"
          WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
          ORDER BY "Job_Task_Staff_ID"
          LIMIT 1),
@@ -581,7 +582,7 @@ SELECT
     COALESCE(
         (SELECT DISTINCT ON ("Job_Task_Staff_ID")
             "Task_Type"
-         FROM "1_Job_Task_Details_Table"
+         FROM "1_Job_Task_Details_Table_base_1"
          WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
          ORDER BY "Job_Task_Staff_ID"
          LIMIT 1),
@@ -595,7 +596,7 @@ SELECT
     -- Task_Completed: LOOKUPVALUE from 1_Job_Task_Details_Table
     (SELECT DISTINCT ON ("Job_Task_Staff_ID")
         "Task_Completed"
-     FROM "1_Job_Task_Details_Table"
+     FROM "1_Job_Task_Details_Table_base_1"
      WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
      ORDER BY "Job_Task_Staff_ID"
      LIMIT 1) AS "Task_Completed",
@@ -604,7 +605,7 @@ SELECT
         COALESCE(
             (SELECT DISTINCT ON ("Job_Task_Staff_ID")
                 "Client_Name"
-             FROM "1_Job_Task_Details_Table"
+             FROM "1_Job_Task_Details_Table_base_1"
              WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
              ORDER BY "Job_Task_Staff_ID"
              LIMIT 1),
@@ -619,7 +620,7 @@ SELECT
         COALESCE(
             (SELECT DISTINCT ON ("Job_Task_Staff_ID")
                 "Task_Type"
-             FROM "1_Job_Task_Details_Table"
+             FROM "1_Job_Task_Details_Table_base_1"
              WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
              ORDER BY "Job_Task_Staff_ID"
              LIMIT 1),
@@ -680,7 +681,7 @@ SELECT
             OR COALESCE(
                 (SELECT DISTINCT ON ("Job_Task_Staff_ID")
                     "Task_Type"
-                 FROM "1_Job_Task_Details_Table"
+                 FROM "1_Job_Task_Details_Table_base_1"
                  WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
                  ORDER BY "Job_Task_Staff_ID"
                  LIMIT 1),
@@ -700,7 +701,7 @@ SELECT
             OR COALESCE(
                 (SELECT DISTINCT ON ("Job_Task_Staff_ID")
                     "Task_Type"
-                 FROM "1_Job_Task_Details_Table"
+                 FROM "1_Job_Task_Details_Table_base_1"
                  WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
                  ORDER BY "Job_Task_Staff_ID"
                  LIMIT 1),
@@ -966,7 +967,7 @@ FROM (
         "StartDateAdjusted",
         "DueDateAdjusted",
         CAST(NULL AS VARCHAR) AS "Task_Name"
-    FROM "1_Job_Task_Details_Table"
+    FROM "1_Job_Task_Details_Table_base_1"
 
     UNION ALL
 
@@ -1010,7 +1011,7 @@ SELECT
         b."Task_Name",
         (SELECT DISTINCT ON ("Job_Task_Staff_ID")
             "Task_Name"
-         FROM "1_Job_Task_Details_Table"
+         FROM "1_Job_Task_Details_Table_base_1"
          WHERE "Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
          ORDER BY "Job_Task_Staff_ID"
          LIMIT 1)
@@ -1205,7 +1206,7 @@ SELECT
     COALESCE(
         (SELECT DISTINCT ON (jt."Job_Task_Staff_ID")
             jt."StartDateAdjusted"
-         FROM "1_Job_Task_Details_Table" jt
+         FROM "1_Job_Task_Details_Table_base_1" jt
          WHERE jt."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
          LIMIT 1),
         b."StartDateAdjusted"
@@ -1214,7 +1215,7 @@ SELECT
     COALESCE(
         (SELECT DISTINCT ON (jt."Job_Task_Staff_ID")
             jt."DueDateAdjusted"
-         FROM "1_Job_Task_Details_Table" jt
+         FROM "1_Job_Task_Details_Table_base_1" jt
          WHERE jt."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
          LIMIT 1),
         b."DueDateAdjusted"
