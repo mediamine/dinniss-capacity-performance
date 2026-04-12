@@ -11,18 +11,19 @@
 -- Creation order (dependency chain):
 --   1. 2_Staff_Task_Allocation_byDay_base  (depends on key01_calendar_date from 010_create_views.sql, KEY02_Job_Task_Staff_ID from 025_create_materialized_views.sql)
 --   2. 2_Staff_Task_Allocation_byDay_base_1 (depends on #1, 1_Job_Task_Details_Table_base_1 from 025_create_materialized_views.sql, EXCEL01_Staff_Workable_Days from 021_create_materialized_views.sql; uses CTE + LEFT JOIN to consolidate intermediate calculations into a single MV write)
---   3. 3_Staff_Performance_Table_base      (depends on key01_calendar_date, key03_staff_table from 010_create_views.sql)
---   4. SUPPORT_Job_Leave_Task_Details_Table_base_2 (depends on SUPPORT_Job_Leave_Task_Details_Table_base_1 from 025, #2)
---   5. SUPPORT_Job_Leave_Task_Details_Table (depends on #4)
---   6. SUPPORT_Staff_Leave_Allocation_byDay (depends on SUPPORT_Staff_Leave_Allocation_byDay_base_2 from 025, #5)
---   7. 2_Staff_Task_Allocation_byDay_base_2 (depends on #2, #6)
---   8. 1_Job_Task_Details_Table_base_2      (depends on 1_Job_Task_Details_Table_base_1 from 025, #7)
---   9. 2_Staff_Task_Allocation_byDay_base_3 (depends on #7, #8)
---  10. 1_Job_Task_Details_Table_base_3      (depends on #8, #9)
---  11. 2_Staff_Task_Allocation_byDay       (depends on #9, #10)
---  12. 1_Job_Task_Details_Table            (depends on #10, #11)
+--   3. SUPPORT_Job_Leave_Task_Details_Table_base_2 (depends on SUPPORT_Job_Leave_Task_Details_Table_base_1 from 025, #2)
+--   4. SUPPORT_Job_Leave_Task_Details_Table (depends on #3)
+--   5. SUPPORT_Staff_Leave_Allocation_byDay (depends on SUPPORT_Staff_Leave_Allocation_byDay_base_2 from 025, #4)
+--   6. 2_Staff_Task_Allocation_byDay_base_2 (depends on #2, #5)
+--   7. 1_Job_Task_Details_Table_base_2      (depends on 1_Job_Task_Details_Table_base_1 from 025, #6)
+--   8. 2_Staff_Task_Allocation_byDay_base_3 (depends on #6, #7)
+--   9. 1_Job_Task_Details_Table_base_3      (depends on #7, #8)
+--  10. 2_Staff_Task_Allocation_byDay_base_4 (depends on #8, #9)
+--  11. 1_Job_Task_Details_Table            (depends on #9, #10)
+--  12. 2_Staff_Task_Allocation_byDay       (depends on #10, #11)
 --
 -- Note: SUPPORT_Staff_Leave_Allocation_byDay_base and SUPPORT_Staff_Leave_Allocation_byDay_base_2 are created in 025_create_materialized_views.sql
+-- Note: 3_Staff_Performance_Table_base is created in 029_create_materialized_views.sql
 -- =============================================================================
 -- 2_Staff_Task_Allocation_byDay_base
 -- DAX equivalent: 2_Staff_Task_Allocation_byDay = CROSSJOIN(KEY01_CalendarDate, KEY02_Job_Task_Staff_ID)
@@ -168,35 +169,6 @@ CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Job_Task_Staff_ID");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Staff_Name");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Is_Billable");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Is_Workable_Day");
-
-
--- 3_Staff_Performance_Table_base
--- DAX equivalent: 3_Staff_Performance_Table = CROSSJOIN(KEY01_CalendarDate, KEY03_Staff_Table)
--- Base view combining every calendar date with every unique staff member.
--- This creates the foundation for per-day staff performance metrics and utilization calculations.
--- Dependencies: key01_calendar_date, key03_staff_table (from 010_create_views.sql)
-DROP MATERIALIZED VIEW IF EXISTS "3_Staff_Performance_Table_base" CASCADE;
-
-
-CREATE MATERIALIZED VIEW "3_Staff_Performance_Table_base" AS
-SELECT
-    c."Date",
-    c."PublicHoliday",
-    c."Weekday",
-    c."WeekEnd",
-    c."StartOfMonth",
-    c."EndOfMonth",
-    c."Is_Range_for_Invoicing",
-    s."Staff_UUID",
-    s."Staff_Name"
-FROM
-    key01_calendar_date c
-    CROSS JOIN key03_staff_table s;
-
-
-CREATE INDEX ON "3_Staff_Performance_Table_base" ("Date");
-CREATE INDEX ON "3_Staff_Performance_Table_base" ("Staff_Name");
-CREATE INDEX ON "3_Staff_Performance_Table_base" ("Staff_UUID");
 
 
 -- SUPPORT_Job_Leave_Task_Details_Table_base_2
@@ -742,8 +714,8 @@ CREATE INDEX ON "1_Job_Task_Details_Table_base_3" ("Job_ID");
 CREATE INDEX ON "1_Job_Task_Details_Table_base_3" ("Staff_Name");
 
 
--- 2_Staff_Task_Allocation_byDay
--- DAX equivalent: Final daily task allocation view with KPI03 and FIN01
+-- 2_Staff_Task_Allocation_byDay_base_4
+-- DAX equivalent: Daily task allocation view with KPI03, KPI04 and FIN01
 -- Extends 2_Staff_Task_Allocation_byDay_base_3 with:
 --   Initial_Allo_Hrs_perPriorWorkDays_WITH_LEAVE: IF(Is_Date_between_Start&Today AND Task_Category="Billable Tasks",
 --     IF(Is_Workable_Day AND Is_Date_Between_Task_Days AND Is_Staff_Workable_DayOfWeek AND Is_Day_With_a_Leave
@@ -756,9 +728,10 @@ CREATE INDEX ON "1_Job_Task_Details_Table_base_3" ("Staff_Name");
 --   Allo_Hrs_perRemainingWorkDay_WITH_LEAVE_KPI04: Same structure as KPI03 but Is_Date_between_Today&Due instead of Is_Date_between_Start&Today
 -- Dependencies: 2_Staff_Task_Allocation_byDay_base_3 (#9), 1_Job_Task_Details_Table_base_3 (#10)
 DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay" CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay_base_4" CASCADE;
 
 
-CREATE MATERIALIZED VIEW "2_Staff_Task_Allocation_byDay" AS
+CREATE MATERIALIZED VIEW "2_Staff_Task_Allocation_byDay_base_4" AS
 WITH jt_lookup AS (
     -- Deduplicate 1_Job_Task_Details_Table by Job_Task_Staff_ID for LOOKUPVALUE semantics
     SELECT DISTINCT ON ("Job_Task_Staff_ID")
@@ -835,9 +808,9 @@ SELECT
 FROM base;
 
 
-CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Date");
-CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Job_Task_Staff_ID");
-CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Staff_Name");
+CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_4" ("Date");
+CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_4" ("Job_Task_Staff_ID");
+CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_4" ("Staff_Name");
 
 
 -- 1_Job_Task_Details_Table
@@ -850,7 +823,12 @@ CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Staff_Name");
 --   Is_Task_WITHIN_Allo_Time_IMP: IF(Remain_Mins > 0, IF(Remain_WorkDays >= 1 AND Avg <= 480, TRUE, FALSE), TRUE) (non-leave only)
 --   Prior_WorkDays_WITHOUT_Leave: COUNTROWS with Is_Day_With_a_Leave=FALSE, Is_Date_between_Start&Today (non-leave only)
 --   Allo_Mins_during_PriorWorkDays_WITH_leave: SUM(Initial_Allo_Hrs_perPriorWorkDays_WITH_LEAVE)*60 with leave filters (non-leave only)
--- Dependencies: 1_Job_Task_Details_Table_base_3 (#10), 2_Staff_Task_Allocation_byDay (#11)
+--   Is_Mins_PriorWorkDays_WITH_Leave_>_Task_Mins_Worked: IF(Allo_Mins_prior > Task_Mins_Worked_Adjusted, TRUE, FALSE) (non-leave only)
+--   Adj_Worked_Mins_PriorWorkDays_WITH_Leave: IF(Is_Mins_Prior>Worked=TRUE, Task_Mins_Worked_Adjusted, Allo_Mins_prior) (non-leave only)
+--   Adj_Worked_Mins_PriorWorkDays_WITHOUT_Leave: Task_Mins_Worked_Adjusted - Adj_Worked_WITH (non-leave only)
+--   Avg_Worked_Mins_perPriorDays_WITH_Leave: DIVIDE(Adj_WITH, Prior_WorkDays_WITH_Leave, BLANK()) (non-leave only)
+--   Avg_Worked_Mins_perPriorDays_WITHOUT_Leave: DIVIDE(Adj_WITHOUT, Prior_WorkDays_WITHOUT_Leave, BLANK()) (non-leave only)
+-- Dependencies: 1_Job_Task_Details_Table_base_3 (#10), 2_Staff_Task_Allocation_byDay_base_4 (#11)
 DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table" CASCADE;
 
 
@@ -860,7 +838,7 @@ WITH arm AS (
     SELECT
         d."Job_Task_Staff_ID",
         SUM(d."Allo_Hrs_perRemainingWorkDay_WITH_LEAVE_KPI04") * 60.0 AS allo_mins_remaining
-    FROM "2_Staff_Task_Allocation_byDay" d
+    FROM "2_Staff_Task_Allocation_byDay_base_4" d
     GROUP BY d."Job_Task_Staff_ID"
 ),
 rwdwol AS (
@@ -870,7 +848,7 @@ rwdwol AS (
     SELECT
         d."Job_Task_Staff_ID",
         COUNT(*) AS remain_wdwol_cnt
-    FROM "2_Staff_Task_Allocation_byDay" d
+    FROM "2_Staff_Task_Allocation_byDay_base_4" d
     WHERE d."Is_Day_With_a_Leave" = FALSE
       AND d."Is_Date_Between_Task_Days" = TRUE
       AND d."Is_Workable_Day" = TRUE
@@ -887,7 +865,7 @@ pwdwol AS (
     SELECT
         d."Job_Task_Staff_ID",
         COUNT(*) AS prior_wdwol_cnt
-    FROM "2_Staff_Task_Allocation_byDay" d
+    FROM "2_Staff_Task_Allocation_byDay_base_4" d
     WHERE d."Is_Day_With_a_Leave" = FALSE
       AND d."Is_Date_Between_Task_Days" = TRUE
       AND d."Is_Workable_Day" = TRUE
@@ -903,7 +881,7 @@ ampwl AS (
     SELECT
         d."Job_Task_Staff_ID",
         SUM(d."Initial_Allo_Hrs_perPriorWorkDays_WITH_LEAVE") * 60.0 AS allo_mins_prior
-    FROM "2_Staff_Task_Allocation_byDay" d
+    FROM "2_Staff_Task_Allocation_byDay_base_4" d
     WHERE d."Is_Day_With_a_Leave" = TRUE
       AND d."Is_Date_Between_Task_Days" = TRUE
       AND d."Is_Workable_Day" = TRUE
@@ -940,27 +918,207 @@ base AS (
     LEFT JOIN rwdwol r ON r."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
     LEFT JOIN pwdwol p ON p."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
     LEFT JOIN ampwl ap ON ap."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
+),
+base2 AS (
+    SELECT
+        base.*,
+        -- Is_Mins_PriorWorkDays_WITH_Leave_>_Task_Mins_Worked:
+        -- IF(Allo_Mins_during_PriorWorkDays_WITH_leave > Task_Mins_Worked_Adjusted, TRUE, FALSE)
+        -- RETURN IF(Is_Task_a_Leave=FALSE, Result, BLANK())
+        CASE WHEN base."Is_Task_a_Leave" = FALSE THEN
+            CASE WHEN base."Allo_Mins_during_PriorWorkDays_WITH_leave" > base."Task_Mins_Worked_Adjusted"
+                 THEN TRUE ELSE FALSE
+            END
+        END AS "Is_Mins_PriorWorkDays_WITH_Leave_>_Task_Mins_Worked",
+        -- Adj_Worked_Mins_PriorWorkDays_WITH_Leave:
+        -- IF(Is_Mins_PriorWorkDays_WITH_Leave_>_Task_Mins_Worked=TRUE, Task_Mins_Worked_Adjusted, Allo_Mins_during_PriorWorkDays_WITH_leave)
+        -- RETURN IF(Is_Task_a_Leave=FALSE, Result, BLANK())
+        -- (inlined: if Allo > Worked then Worked, else Allo)
+        CASE WHEN base."Is_Task_a_Leave" = FALSE THEN
+            CASE WHEN base."Allo_Mins_during_PriorWorkDays_WITH_leave" > base."Task_Mins_Worked_Adjusted"
+                 THEN base."Task_Mins_Worked_Adjusted"
+                 ELSE base."Allo_Mins_during_PriorWorkDays_WITH_leave"
+            END
+        END AS "Adj_Worked_Mins_PriorWorkDays_WITH_Leave"
+    FROM base
+),
+base3 AS (
+    SELECT
+        base2.*,
+        -- Adj_Worked_Mins_PriorWorkDays_WITHOUT_Leave:
+        -- Task_Mins_Worked_Adjusted - Adj_Worked_Mins_PriorWorkDays_WITH_Leave
+        -- RETURN IF(Is_Task_a_Leave=FALSE, Result, BLANK())
+        CASE WHEN base2."Is_Task_a_Leave" = FALSE THEN
+            base2."Task_Mins_Worked_Adjusted" - base2."Adj_Worked_Mins_PriorWorkDays_WITH_Leave"
+        END AS "Adj_Worked_Mins_PriorWorkDays_WITHOUT_Leave",
+        -- Avg_Worked_Mins_perPriorDays_WITH_Leave:
+        -- DIVIDE(Adj_Worked_Mins_PriorWorkDays_WITH_Leave, Prior_WorkDays_WITH_Leave, BLANK())
+        -- RETURN IF(Is_Task_a_Leave=FALSE, Result, BLANK())
+        CASE WHEN base2."Is_Task_a_Leave" = FALSE THEN
+            base2."Adj_Worked_Mins_PriorWorkDays_WITH_Leave"
+            / NULLIF(base2."Prior_WorkDays_WITH_Leave", 0)::NUMERIC
+        END AS "Avg_Worked_Mins_perPriorDays_WITH_Leave"
+    FROM base2
 )
 SELECT
-    base.*,
+    base3.*,
+    -- Avg_Worked_Mins_perPriorDays_WITHOUT_Leave:
+    -- DIVIDE(Adj_Worked_Mins_PriorWorkDays_WITHOUT_Leave, Prior_WorkDays_WITHOUT_Leave, BLANK())
+    -- RETURN IF(Is_Task_a_Leave=FALSE, Result, BLANK())
+    CASE WHEN base3."Is_Task_a_Leave" = FALSE THEN
+        base3."Adj_Worked_Mins_PriorWorkDays_WITHOUT_Leave"
+        / NULLIF(base3."Prior_WorkDays_WITHOUT_Leave", 0)::NUMERIC
+    END AS "Avg_Worked_Mins_perPriorDays_WITHOUT_Leave",
     -- Is_Task_WITHIN_Allo_Time_IMP:
     -- IF(Remain_Mins > 0, IF(AND(Remain_WorkDays >= 1, Avg_Remain <= 480), TRUE, FALSE), TRUE)
     -- RETURN IF(Is_Task_a_Leave=FALSE, Result, BLANK())
     CASE
-        WHEN base."Is_Task_a_Leave" = FALSE THEN
+        WHEN base3."Is_Task_a_Leave" = FALSE THEN
             CASE
-                WHEN base."Remain_Mins_Allo_to_Remain_WorkDays_WITHOUT_Leave" > 0 THEN
+                WHEN base3."Remain_Mins_Allo_to_Remain_WorkDays_WITHOUT_Leave" > 0 THEN
                     CASE
-                        WHEN base."Remain_WorkDays_WITHOUT_Leave" >= 1
-                         AND base."Avg_Remain_Mins_perRemainWorkday_WITHOUT_Leave" <= 480 THEN TRUE
+                        WHEN base3."Remain_WorkDays_WITHOUT_Leave" >= 1
+                         AND base3."Avg_Remain_Mins_perRemainWorkday_WITHOUT_Leave" <= 480 THEN TRUE
                         ELSE FALSE
                     END
                 ELSE TRUE
             END
     END AS "Is_Task_WITHIN_Allo_Time_IMP"
-FROM base;
+FROM base3;
 
 
 CREATE INDEX ON "1_Job_Task_Details_Table" ("Job_Task_Staff_ID");
 CREATE INDEX ON "1_Job_Task_Details_Table" ("Job_ID");
 CREATE INDEX ON "1_Job_Task_Details_Table" ("Staff_Name");
+
+
+-- 2_Staff_Task_Allocation_byDay
+-- DAX equivalent: Final daily task allocation view with KPI05-KPI07, FIN02-FIN03, Final Output, lookups
+-- Extends 2_Staff_Task_Allocation_byDay_base_4 with:
+--   Allo_Hrs_perRemainingWorkDay_WITHOUT_LEAVE_KPI05: Same structure as KPI04 but Is_Day_With_a_Leave=FALSE,
+--     LOOKUPVALUE(1_Job_Task_Details_Table[Avg_Remain_Mins_perRemainWorkday_WITHOUT_Leave]) / 60
+--   Act_Allo_Hrs_perPriorWorkDays_WITH_LEAVE_KPI06: Same structure as KPI03 but
+--     LOOKUPVALUE(1_Job_Task_Details_Table[Avg_Worked_Mins_perPriorDays_WITH_Leave]) / 60
+--   Act_Allo_Hrs_perPriorWorkDays_WITHOUT_LEAVE_KPI07: Same as KPI06 but Is_Day_With_a_Leave=FALSE,
+--     LOOKUPVALUE(1_Job_Task_Details_Table[Avg_Worked_Mins_perPriorDays_WITHOUT_Leave]) / 60
+--   Is_Task_WITHIN_Allo_Time: LOOKUPVALUE(1_Job_Task_Details_Table[Is_Task_WITHIN_Allo_Time_IMP])
+--   Is_Job_Complete: IF(LOOKUPVALUE(KEY06_Job_Table[Job_State]) = "Completed", TRUE, FALSE)
+--   Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02: KPI04 + KPI05
+--   Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03: KPI06 + KPI07
+--   Allo_Hrs_perWorkableDay_Final_Output: IF(Leave, KPI01, IF(Admin, FIN01, IF(Billable, FIN02+FIN03)))
+-- Dependencies: 2_Staff_Task_Allocation_byDay_base_4 (#11), 1_Job_Task_Details_Table (#12), key06_job_table (from 010)
+DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay" CASCADE;
+
+
+CREATE MATERIALIZED VIEW "2_Staff_Task_Allocation_byDay" AS
+WITH jt_lookup AS (
+    -- Deduplicate 1_Job_Task_Details_Table by Job_Task_Staff_ID for LOOKUPVALUE semantics
+    SELECT DISTINCT ON ("Job_Task_Staff_ID")
+        "Job_Task_Staff_ID",
+        "Avg_Remain_Mins_perRemainWorkday_WITHOUT_Leave",
+        "Avg_Worked_Mins_perPriorDays_WITH_Leave",
+        "Avg_Worked_Mins_perPriorDays_WITHOUT_Leave",
+        "Is_Task_WITHIN_Allo_Time_IMP"
+    FROM "1_Job_Task_Details_Table"
+    ORDER BY "Job_Task_Staff_ID"
+),
+job_lookup AS (
+    -- Deduplicate key06_job_table by Job_ID for LOOKUPVALUE semantics
+    SELECT DISTINCT ON ("Job_ID")
+        "Job_ID",
+        "Job_State"
+    FROM key06_job_table
+    ORDER BY "Job_ID"
+),
+base AS (
+    SELECT
+        b.*,
+        -- Allo_Hrs_perRemainingWorkDay_WITHOUT_LEAVE_KPI05:
+        -- VAR Logic = IF(AND(Is_Workable_Day, Is_Date_Between_Task_Days),
+        --   IF(AND(Is_Staff_Workable_DayOfWeek, Is_Day_With_a_Leave=FALSE),
+        --     IF(AND(NOT Is_Task_a_Leave, NOT Is_Full_Day_Leave),
+        --       Avg_Remain_Mins_perRemainWorkday_WITHOUT_Leave / 60, BLANK())))
+        -- RETURN IF(AND(Is_Date_between_Today&Due, Task_Category="Billable Tasks"), Logic, BLANK())
+        CASE
+            WHEN b."Is_Date_between_Today&Due" = TRUE
+             AND b."Task_Category" = 'Billable Tasks'
+             AND b."Is_Workable_Day" = TRUE
+             AND b."Is_Date_Between_Task_Days" = TRUE
+             AND b."Is_Staff_Workable_DayOfWeek" = TRUE
+             AND b."Is_Day_With_a_Leave" = FALSE
+             AND b."Is_Task_a_Leave" = FALSE
+             AND b."Is_Full_Day_Leave" = FALSE
+            THEN jt."Avg_Remain_Mins_perRemainWorkday_WITHOUT_Leave" / 60.0
+        END AS "Allo_Hrs_perRemainingWorkDay_WITHOUT_LEAVE_KPI05",
+        -- Act_Allo_Hrs_perPriorWorkDays_WITH_LEAVE_KPI06:
+        -- VAR Logic = IF(AND(Is_Workable_Day, Is_Date_Between_Task_Days),
+        --   IF(AND(Is_Staff_Workable_DayOfWeek, Is_Day_With_a_Leave=TRUE),
+        --     IF(AND(NOT Is_Task_a_Leave, NOT Is_Full_Day_Leave),
+        --       Avg_Worked_Mins_perPriorDays_WITH_Leave / 60, BLANK())))
+        -- RETURN IF(AND(Is_Date_between_Start&Today, Task_Category="Billable Tasks"), Logic, BLANK())
+        CASE
+            WHEN b."Is_Date_between_Start&Today" = TRUE
+             AND b."Task_Category" = 'Billable Tasks'
+             AND b."Is_Workable_Day" = TRUE
+             AND b."Is_Date_Between_Task_Days" = TRUE
+             AND b."Is_Staff_Workable_DayOfWeek" = TRUE
+             AND b."Is_Day_With_a_Leave" = TRUE
+             AND b."Is_Task_a_Leave" = FALSE
+             AND b."Is_Full_Day_Leave" = FALSE
+            THEN jt."Avg_Worked_Mins_perPriorDays_WITH_Leave" / 60.0
+        END AS "Act_Allo_Hrs_perPriorWorkDays_WITH_LEAVE_KPI06",
+        -- Act_Allo_Hrs_perPriorWorkDays_WITHOUT_LEAVE_KPI07:
+        -- VAR Logic = IF(AND(Is_Workable_Day, Is_Date_Between_Task_Days),
+        --   IF(AND(Is_Staff_Workable_DayOfWeek, Is_Day_With_a_Leave=FALSE),
+        --     IF(AND(NOT Is_Task_a_Leave, NOT Is_Full_Day_Leave),
+        --       Avg_Worked_Mins_perPriorDays_WITHOUT_Leave / 60, BLANK())))
+        -- RETURN IF(AND(Is_Date_between_Start&Today, Task_Category="Billable Tasks"), Logic, BLANK())
+        CASE
+            WHEN b."Is_Date_between_Start&Today" = TRUE
+             AND b."Task_Category" = 'Billable Tasks'
+             AND b."Is_Workable_Day" = TRUE
+             AND b."Is_Date_Between_Task_Days" = TRUE
+             AND b."Is_Staff_Workable_DayOfWeek" = TRUE
+             AND b."Is_Day_With_a_Leave" = FALSE
+             AND b."Is_Task_a_Leave" = FALSE
+             AND b."Is_Full_Day_Leave" = FALSE
+            THEN jt."Avg_Worked_Mins_perPriorDays_WITHOUT_Leave" / 60.0
+        END AS "Act_Allo_Hrs_perPriorWorkDays_WITHOUT_LEAVE_KPI07",
+        -- Is_Task_WITHIN_Allo_Time: LOOKUPVALUE(1_Job_Task_Details_Table[Is_Task_WITHIN_Allo_Time_IMP])
+        jt."Is_Task_WITHIN_Allo_Time_IMP" AS "Is_Task_WITHIN_Allo_Time",
+        -- Is_Job_Complete: IF(LOOKUPVALUE(KEY06_Job_Table[Job_State]) = "Completed", TRUE, FALSE)
+        CASE WHEN jl."Job_State" = 'Completed' THEN TRUE ELSE FALSE END AS "Is_Job_Complete"
+    FROM "2_Staff_Task_Allocation_byDay_base_4" b
+    LEFT JOIN jt_lookup jt ON jt."Job_Task_Staff_ID" = b."Job_Task_Staff_ID"
+    LEFT JOIN job_lookup jl ON jl."Job_ID" = b."Job_ID"
+),
+base2 AS (
+    SELECT
+        base.*,
+        -- Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02: KPI04 + KPI05
+        COALESCE(base."Allo_Hrs_perRemainingWorkDay_WITH_LEAVE_KPI04", 0)
+        + COALESCE(base."Allo_Hrs_perRemainingWorkDay_WITHOUT_LEAVE_KPI05", 0) AS "Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02",
+        -- Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03: KPI06 + KPI07
+        COALESCE(base."Act_Allo_Hrs_perPriorWorkDays_WITH_LEAVE_KPI06", 0)
+        + COALESCE(base."Act_Allo_Hrs_perPriorWorkDays_WITHOUT_LEAVE_KPI07", 0) AS "Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03"
+    FROM base
+)
+SELECT
+    base2.*,
+    -- Allo_Hrs_perWorkableDay_Final_Output:
+    -- IF(Task_Category="Leave Tasks", KPI01,
+    --   IF(Task_Category="Admin Tasks", FIN01,
+    --     IF(Task_Category="Billable Tasks", FIN02+FIN03, BLANK())))
+    CASE
+        WHEN base2."Task_Category" = 'Leave Tasks' THEN base2."Initial_Allo_Hrs_perWorkDay_KPI01"
+        WHEN base2."Task_Category" = 'Admin Tasks' THEN base2."Allo_Hrs_perWorkDay_AdjLeaves_FIN01"
+        WHEN base2."Task_Category" = 'Billable Tasks' THEN
+            base2."Allo_Hrs_perWorkDay_AdjLeavesRemainDays_FIN02"
+            + base2."Allo_Hrs_perWorkDay_AdjLeavesPriorDays_FIN03"
+    END AS "Allo_Hrs_perWorkableDay_Final_Output"
+FROM base2;
+
+
+CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Date");
+CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Job_Task_Staff_ID");
+CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Staff_Name");
