@@ -26,7 +26,8 @@
 --
 -- Note: SUPPORT_Job_Leave_Task_Details_Table, SUPPORT_Staff_Leave_Allocation_byDay are created in 026_create_materialized_views.sql
 --
--- Note: View layers 2_Staff_Task_Allocation_byDay_base, 2_Staff_Task_Allocation_byDay_base_1, 2_Staff_Task_Allocation_byDay, and 3_Staff_Performance_Table_base are created in 026_create_materialized_views.sql
+-- Note: View layers 2_Staff_Task_Allocation_byDay_base, 2_Staff_Task_Allocation_byDay_base_1, 2_Staff_Task_Allocation_byDay are created in 026_create_materialized_views.sql
+-- Note: 3_Staff_Performance_Table_base is created in 029_create_materialized_views.sql
 --
 -- TODO: Optimization refactoring needed (Phase 1 - Quick wins):
 --   - Task_Category: Move from base_2 to base_1 (only depends on Task_Name, Client_Name available in base_1)
