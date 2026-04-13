@@ -1,35 +1,35 @@
 -- =============================================================================
 -- MATERIALIZED VIEWS - Staff Task Allocation by Day
 -- =============================================================================
--- Run AFTER 010_create_views.sql and 025_create_materialized_views.sql
+-- Run AFTER 010_create_materialized_views.sql and 013_create_materialized_views.sql
 -- This view creates the per-day task allocation matrix by cross-joining calendar dates
 -- with unique job-task-staff combinations. It serves as the foundation for per-day
 -- allocation calculations and staff performance metrics.
 --
--- For daily refresh use 030_refresh_materialized_views.sql instead.
+-- For daily refresh use 020_refresh_materialized_views.sql instead.
 --
 -- Creation order (dependency chain):
---   1. 2_Staff_Task_Allocation_byDay_base  (depends on key01_calendar_date from 010_create_views.sql, KEY02_Job_Task_Staff_ID from 025_create_materialized_views.sql)
---   2. 2_Staff_Task_Allocation_byDay_base_1 (depends on #1, 1_Job_Task_Details_Table_base_1 from 025_create_materialized_views.sql, EXCEL01_Staff_Workable_Days from 021_create_materialized_views.sql; uses CTE + LEFT JOIN to consolidate intermediate calculations into a single MV write)
---   3. SUPPORT_Job_Leave_Task_Details_Table_base_2 (depends on SUPPORT_Job_Leave_Task_Details_Table_base_1 from 025, #2)
+--   1. 2_Staff_Task_Allocation_byDay_base  (depends on key01_calendar_date from 010_create_materialized_views.sql, KEY02_Job_Task_Staff_ID from 013_create_materialized_views.sql)
+--   2. 2_Staff_Task_Allocation_byDay_base_1 (depends on #1, 1_Job_Task_Details_Table_base_1 from 013_create_materialized_views.sql, EXCEL01_Staff_Workable_Days from 012_create_materialized_views.sql; uses CTE + LEFT JOIN to consolidate intermediate calculations into a single MV write)
+--   3. SUPPORT_Job_Leave_Task_Details_Table_base_2 (depends on SUPPORT_Job_Leave_Task_Details_Table_base_1 from 013, #2)
 --   4. SUPPORT_Job_Leave_Task_Details_Table (depends on #3)
---   5. SUPPORT_Staff_Leave_Allocation_byDay (depends on SUPPORT_Staff_Leave_Allocation_byDay_base_2 from 025, #4)
+--   5. SUPPORT_Staff_Leave_Allocation_byDay (depends on SUPPORT_Staff_Leave_Allocation_byDay_base_2 from 013, #4)
 --   6. 2_Staff_Task_Allocation_byDay_base_2 (depends on #2, #5)
---   7. 1_Job_Task_Details_Table_base_2      (depends on 1_Job_Task_Details_Table_base_1 from 025, #6)
+--   7. 1_Job_Task_Details_Table_base_2      (depends on 1_Job_Task_Details_Table_base_1 from 013, #6)
 --   8. 2_Staff_Task_Allocation_byDay_base_3 (depends on #6, #7)
 --   9. 1_Job_Task_Details_Table_base_3      (depends on #7, #8)
 --  10. 2_Staff_Task_Allocation_byDay_base_4 (depends on #8, #9)
 --  11. 1_Job_Task_Details_Table            (depends on #9, #10)
 --  12. 2_Staff_Task_Allocation_byDay       (depends on #10, #11)
 --
--- Note: SUPPORT_Staff_Leave_Allocation_byDay_base and SUPPORT_Staff_Leave_Allocation_byDay_base_2 are created in 025_create_materialized_views.sql
--- Note: 3_Staff_Performance_Table_base is created in 029_create_materialized_views.sql
+-- Note: SUPPORT_Staff_Leave_Allocation_byDay_base and SUPPORT_Staff_Leave_Allocation_byDay_base_2 are created in 013_create_materialized_views.sql
+-- Note: 3_Staff_Performance_Table_base is created in 015_create_materialized_views.sql
 -- =============================================================================
 -- 2_Staff_Task_Allocation_byDay_base
 -- DAX equivalent: 2_Staff_Task_Allocation_byDay = CROSSJOIN(KEY01_CalendarDate, KEY02_Job_Task_Staff_ID)
 -- Base view combining every calendar date with every unique job-task-staff combination.
 -- This creates the foundation for per-day task allocation calculations.
--- Dependencies: key01_calendar_date (from 010_create_views.sql), KEY02_Job_Task_Staff_ID (from 025_create_materialized_views.sql)
+-- Dependencies: key01_calendar_date (from 010_create_materialized_views.sql), KEY02_Job_Task_Staff_ID (from 013_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay_base" CASCADE;
 
 
@@ -74,8 +74,8 @@ CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base" ("Staff_Name");
 -- The _r-suffixed columns inside the `enriched` CTE exist so the outer SELECT can reference
 -- computed values (e.g., Is_Billable depends on Is_Client_r).
 --
--- Dependencies: 2_Staff_Task_Allocation_byDay_base (#1), 1_Job_Task_Details_Table_base_1 (from 025_create_materialized_views.sql),
---               EXCEL01_Staff_Workable_Days (from 021_create_materialized_views.sql)
+-- Dependencies: 2_Staff_Task_Allocation_byDay_base (#1), 1_Job_Task_Details_Table_base_1 (from 013_create_materialized_views.sql),
+--               EXCEL01_Staff_Workable_Days (from 012_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay" CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay_base_3" CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS "2_Staff_Task_Allocation_byDay_base_1" CASCADE;
@@ -176,7 +176,7 @@ CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_1" ("Is_Workable_Day");
 -- Extends SUPPORT_Job_Leave_Task_Details_Table_base_1 with count of workable days within task date range.
 -- Workable_Days_Between_Task: Counts rows from 2_Staff_Task_Allocation_byDay_base_1 where Job_Task_Staff_ID matches,
 --   Is_Date_Between_Task_Days=TRUE, Is_Workable_Day=TRUE, and Is_Staff_Workable_DayOfWeek=TRUE.
--- Dependencies: SUPPORT_Job_Leave_Task_Details_Table_base_1 (from 025_create_materialized_views.sql), 2_Staff_Task_Allocation_byDay_base_1 (#2)
+-- Dependencies: SUPPORT_Job_Leave_Task_Details_Table_base_1 (from 013_create_materialized_views.sql), 2_Staff_Task_Allocation_byDay_base_1 (#2)
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table_base_2 CASCADE;
 
@@ -270,7 +270,7 @@ CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table ("Workable_Days_Between_Tas
 -- Allo_Leave_Hrs_perWorkday: VAR Logic = IF(AND(Is_WorkableDay=TRUE, Is_DateBetweenTask=TRUE),
 --   LOOKUPVALUE(SUPPORT_Job_Leave_Task_Details_Table[Avg_Daily_Hours], Job_Task_Staff_ID), BLANK())
 --   RETURN IF(Is_Staff_Workable_DayOfWeek=TRUE, Logic, BLANK())
--- Dependencies: SUPPORT_Staff_Leave_Allocation_byDay_base_2 (from 025_create_materialized_views.sql), SUPPORT_Job_Leave_Task_Details_Table (#6)
+-- Dependencies: SUPPORT_Staff_Leave_Allocation_byDay_base_2 (from 013_create_materialized_views.sql), SUPPORT_Job_Leave_Task_Details_Table (#6)
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay CASCADE;
 
 
@@ -377,7 +377,7 @@ ts_task AS (
 wdb AS (
     -- Pre-aggregate workable day count + Task_Allocated_Mins per Job_Task_Staff_ID
     -- Reuses leave_agg CTE for Is_Full_Day_Leave; avoids circular dependency on 1_Job_Task_Details_Table
-    -- Joins to _base_1 (from 025) to get Task_Allocated_Mins (not available on 2_Staff_Task_Allocation_byDay_base_1)
+    -- Joins to _base_1 (from 013) to get Task_Allocated_Mins (not available on 2_Staff_Task_Allocation_byDay_base_1)
     SELECT
         b1."Job_Task_Staff_ID",
         COUNT(*) AS wdb_cnt,
@@ -443,7 +443,7 @@ CREATE INDEX ON "2_Staff_Task_Allocation_byDay_base_2" ("Is_Full_Day_Leave");
 --   Workable_Days_Between_Task, Is_Task_a_Leave, Workable_Hrs_Between_Task, Initial_Avg_Mins_perWorkDay,
 --   Total_Leave_Hrs_between_Workable_Days, Rev_Workable_Days_Between_Task, Avg_Mins_perWorkDay_WITHOUT_Leave
 -- Uses CTE + LEFT JOIN to pre-aggregate counts (hash join O(1) per row, not correlated subquery)
--- Dependencies: 1_Job_Task_Details_Table_base_1 (from 025), 2_Staff_Task_Allocation_byDay_base_2 (#7)
+-- Dependencies: 1_Job_Task_Details_Table_base_1 (from 013), 2_Staff_Task_Allocation_byDay_base_2 (#7)
 DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table" CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table_base_3" CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table_base_2" CASCADE;
@@ -1122,3 +1122,20 @@ FROM base2;
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Date");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Job_Task_Staff_ID");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Staff_Name");
+
+
+-- =============================================================================
+-- KEY07_Is_Billable
+-- =============================================================================
+-- DAX: KEY07_Is_Billable =
+--   SUMMARIZE('2_Staff_Task_Allocation_byDay',
+--             '2_Staff_Task_Allocation_byDay'[Billable_Selector])
+-- Returns the distinct list of Billable_Selector values.
+-- Dependencies: 2_Staff_Task_Allocation_byDay (026)
+-- =============================================================================
+DROP MATERIALIZED VIEW IF EXISTS key07_is_billable CASCADE;
+
+CREATE MATERIALIZED VIEW key07_is_billable AS
+SELECT DISTINCT "Billable_Selector"
+FROM "2_Staff_Task_Allocation_byDay"
+ORDER BY "Billable_Selector";

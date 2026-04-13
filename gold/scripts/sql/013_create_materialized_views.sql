@@ -1,17 +1,17 @@
 -- =============================================================================
 -- MATERIALIZED VIEWS - Job Task & Timesheet Details
 -- =============================================================================
--- Run AFTER 010_create_views.sql, 015_create_materialized_views.sql, and 021_create_materialized_views.sql
+-- Run AFTER 010_create_materialized_views.sql, 011_create_materialized_views.sql, and 012_create_materialized_views.sql
 -- These views extend job task and timesheet data with details and lookups.
--- For daily refresh use 030_refresh_materialized_views.sql instead.
+-- For daily refresh use 020_refresh_materialized_views.sql instead.
 --
 -- Creation order (dependency chain):
---   1. 1_Job_Task_Details_Table_base       (depends on TOCHECK_ClientDetails from 015)
+--   1. 1_Job_Task_Details_Table_base       (depends on TOCHECK_ClientDetails from 011)
 --   2. 1_Job_Task_Details_Table            (depends on #1, key04_task_name, key06_job_table from 01)
 --   3. 4_Timesheet_Table_base              (depends on key03_staff_table from 01)
---   4. 4_Timesheet_Table_base_1            (depends on #2, EXCEL06 from 021, #3)
---   5. 4_Timesheet_Table_base_2            (depends on #4, SUPPORT_Invoice_Task_Table from 015)
---   6. 4_Timesheet_Table_base_3            (depends on #5, SUPPORT_Invoice_Task_Table from 015, EXCEL06 from 021)
+--   4. 4_Timesheet_Table_base_1            (depends on #2, EXCEL06 from 012, #3)
+--   5. 4_Timesheet_Table_base_2            (depends on #4, SUPPORT_Invoice_Task_Table from 011)
+--   6. 4_Timesheet_Table_base_3            (depends on #5, SUPPORT_Invoice_Task_Table from 011, EXCEL06 from 012)
 --   7. 4_Timesheet_Table                   (depends on #6, key06_job_table from 01)
 --   8. KEYS_TIME                           (depends on #7)
 --   9. KEY02_Job_Task_Staff_ID_base        (depends on #2, #8)
@@ -19,15 +19,15 @@
 --  11. KEY02_Job_Task_Staff_ID_base_2      (depends on #10, key05_task_type from 01)
 --  12. KEY02_Job_Task_Staff_ID             (depends on #11)
 --  13. SUPPORT_Staff_Leave_Allocation_byDay_base (depends on #12, key01_calendar_date from 01)
---  14. SUPPORT_Staff_Leave_Allocation_byDay_base_1 (depends on #13, #2, EXCEL01_Staff_Workable_Days from 021)
+--  14. SUPPORT_Staff_Leave_Allocation_byDay_base_1 (depends on #13, #2, EXCEL01_Staff_Workable_Days from 012)
 --  15. SUPPORT_Staff_Leave_Allocation_byDay_base_2 (depends on #14)
---  16. SUPPORT_Job_Leave_Task_Details_Table_base (depends on base tables jobtask, jobtaskassignee, jobdetails, TOCHECK_ClientDetails from 015)
+--  16. SUPPORT_Job_Leave_Task_Details_Table_base (depends on base tables jobtask, jobtaskassignee, jobdetails, TOCHECK_ClientDetails from 011)
 --  17. SUPPORT_Job_Leave_Task_Details_Table_base_1 (depends on #16, key06_job_table from 01)
 --
--- Note: SUPPORT_Job_Leave_Task_Details_Table, SUPPORT_Staff_Leave_Allocation_byDay are created in 026_create_materialized_views.sql
+-- Note: SUPPORT_Job_Leave_Task_Details_Table, SUPPORT_Staff_Leave_Allocation_byDay are created in 014_create_materialized_views.sql
 --
--- Note: View layers 2_Staff_Task_Allocation_byDay_base, 2_Staff_Task_Allocation_byDay_base_1, 2_Staff_Task_Allocation_byDay are created in 026_create_materialized_views.sql
--- Note: 3_Staff_Performance_Table_base is created in 029_create_materialized_views.sql
+-- Note: View layers 2_Staff_Task_Allocation_byDay_base, 2_Staff_Task_Allocation_byDay_base_1, 2_Staff_Task_Allocation_byDay are created in 014_create_materialized_views.sql
+-- Note: 3_Staff_Performance_Table_base is created in 015_create_materialized_views.sql
 --
 -- TODO: Optimization refactoring needed (Phase 1 - Quick wins):
 --   - Task_Category: Move from base_2 to base_1 (only depends on Task_Name, Client_Name available in base_1)
@@ -84,9 +84,9 @@
 --      - Candidate: Add data lineage/traceability tests, document column sources
 --
 --   8. SOURCE TABLE FRAGMENTATION: Dependencies scattered across 3 files (01, 015, 021)
---      - key03/04/06_* from 010_create_views.sql
---      - TOCHECK_* and SUPPORT_* from 015_create_materialized_views.sql
---      - EXCEL06_* from 021_create_materialized_views.sql
+--      - key03/04/06_* from 010_create_materialized_views.sql
+--      - TOCHECK_* and SUPPORT_* from 011_create_materialized_views.sql
+--      - EXCEL06_* from 012_create_materialized_views.sql
 --      - Impact: Hard to trace impact of source changes, refactoring one file may break others
 --      - Candidate: Create dependency map, consider consolidating view definitions
 --
@@ -195,21 +195,21 @@
 --
 -- CREATION FLOW (Sequential, must follow dependency order):
 --
---   Phase 1: Base Lookup Tables (010_create_views.sql)
+--   Phase 1: Base Lookup Tables (010_create_materialized_views.sql)
 --     key03_staff_table, key04_task_name, key05_task_type, key06_job_table
 --
---   Phase 2: Invoice & Client Lookups (015_create_materialized_views.sql)
+--   Phase 2: Invoice & Client Lookups (011_create_materialized_views.sql)
 --     TOCHECK_ClientDetails, TOCHECK_Invoice, SUPPORT_Invoice_Task_Table
 --
---   Phase 3: Excel Reference Data (021_create_materialized_views.sql)
+--   Phase 3: Excel Reference Data (012_create_materialized_views.sql)
 --     EXCEL06_Staff_Recorded_vs_Invoiced_Hours
 --
---   Phase 4A: JOB TASK PIPELINE (025_create_materialized_views.sql - LEFT SIDE)
+--   Phase 4A: JOB TASK PIPELINE (013_create_materialized_views.sql - LEFT SIDE)
 --     1. DROP IF EXISTS (handles CASCADE dependencies)
 --     2. CREATE 1_Job_Task_Details_Table_base
 --     3. CREATE 1_Job_Task_Details_Table ← adds Task_Type lookup
 --
---   Phase 4B: TIMESHEET PIPELINE (025_create_materialized_views.sql - RIGHT SIDE)
+--   Phase 4B: TIMESHEET PIPELINE (013_create_materialized_views.sql - RIGHT SIDE)
 --     1. DROP IF EXISTS (CASCADE)
 --     2. CREATE 4_Timesheet_Table_base ← raw timesheet
 --     3. CREATE 4_Timesheet_Table_base_1 ← + Task_Name/Client_Name/Task_Type lookups
@@ -217,7 +217,7 @@
 --     5. CREATE 4_Timesheet_Table_base_3 ← + Invoice timing columns
 --     6. CREATE 4_Timesheet_Table ← + Recorded_Hours_invoiced & Job_Name
 --
---   Phase 4C: KEYS & KEY02 PIPELINE (025_create_materialized_views.sql - UNION BRIDGE)
+--   Phase 4C: KEYS & KEY02 PIPELINE (013_create_materialized_views.sql - UNION BRIDGE)
 --     7. CREATE KEYS_TIME ← subset of 4_Timesheet_Table for KEY02 UNION
 --     8. CREATE KEY02_Job_Task_Staff_ID_base ← UNION of 1_Job_Task_Details_Table + KEYS_TIME
 --     9. CREATE KEY02_Job_Task_Staff_ID_base_1 ← + Task_Name/Client_Name/Job_Name lookups
@@ -395,7 +395,7 @@
 -- 1_Job_Task_Details_Table_base
 -- DAX equivalent: 1_Job_Task_Details_Table_base
 -- Base view for job task details with staff assignment and client information.
--- Dependencies: TOCHECK_ClientDetails (from 015_create_materialized_views.sql)
+-- Dependencies: TOCHECK_ClientDetails (from 011_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table_base" CASCADE;
 
 
@@ -441,7 +441,7 @@ CREATE INDEX ON "1_Job_Task_Details_Table_base" ("Staff_Name");
 -- 1_Job_Task_Details_Table_base_1
 -- DAX equivalent: 1_Job_Task_Details_Table (base layer before computed columns added in 026)
 -- Extended view with task type and adjusted date columns.
--- Dependencies: 1_Job_Task_Details_Table_base, key04_task_name, key06_job_table (from 010_create_views.sql)
+-- Dependencies: 1_Job_Task_Details_Table_base, key04_task_name, key06_job_table (from 010_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table" CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS "1_Job_Task_Details_Table_base_1" CASCADE;
 
@@ -495,7 +495,7 @@ CREATE INDEX ON "1_Job_Task_Details_Table_base_1" ("Staff_Name");
 -- 4_Timesheet_Table_base
 -- DAX equivalent: 4_Timesheet_Table_base
 -- Timesheet data joined with staff names, filtered from 2020 onwards.
--- Dependencies: key03_staff_table (from 010_create_views.sql)
+-- Dependencies: key03_staff_table (from 010_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table_base" CASCADE;
 
 
@@ -530,7 +530,7 @@ CREATE INDEX ON "4_Timesheet_Table_base" ("Date");
 -- 4_Timesheet_Table_base_1
 -- DAX equivalent: 4_Timesheet_Table (extended version)
 -- Extended timesheet view with task name lookup from job details and Excel fallback.
--- Dependencies: 4_Timesheet_Table_base, 1_Job_Task_Details_Table, EXCEL06_Staff_Recorded_vs_Invoiced_Hours (from 021_create_materialized_views.sql)
+-- Dependencies: 4_Timesheet_Table_base, 1_Job_Task_Details_Table, EXCEL06_Staff_Recorded_vs_Invoiced_Hours (from 012_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table" CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table_base_1" CASCADE;
 
@@ -646,7 +646,7 @@ CREATE INDEX ON "4_Timesheet_Table_base_1" ("Date");
 -- 4_Timesheet_Table_base_2
 -- DAX equivalent: 4_Timesheet_Table (with invoicing, billability, and categorization columns)
 -- Extended timesheet view with invoicing status, billability classification, and task categorization.
--- Dependencies: 4_Timesheet_Table_base_1, SUPPORT_Invoice_Task_Table (from 015_create_materialized_views.sql)
+-- Dependencies: 4_Timesheet_Table_base_1, SUPPORT_Invoice_Task_Table (from 011_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table" CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table_base_2" CASCADE;
 
@@ -751,7 +751,7 @@ CREATE INDEX ON "4_Timesheet_Table_base_2" ("Date");
 -- 4_Timesheet_Table_base_3
 -- DAX equivalent: 4_Timesheet_Table (with invoice timing columns)
 -- Timesheet view with invoice month tracking and invoiced minutes reconciliation.
--- Dependencies: 4_Timesheet_Table_base_2, SUPPORT_Invoice_Task_Table (from 015_create_materialized_views.sql), EXCEL06_Staff_Recorded_vs_Invoiced_Hours (from 021_create_materialized_views.sql)
+-- Dependencies: 4_Timesheet_Table_base_2, SUPPORT_Invoice_Task_Table (from 011_create_materialized_views.sql), EXCEL06_Staff_Recorded_vs_Invoiced_Hours (from 012_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table" CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS "4_Timesheet_Table_base_3" CASCADE;
 
@@ -853,7 +853,7 @@ CREATE INDEX ON "4_Timesheet_Table_base_3" ("Date");
 -- 4_Timesheet_Table
 -- DAX equivalent: 4_Timesheet_Table (with recorded hours invoicing classification and job name)
 -- Final timesheet view with invoicing timeline categorization for billable tasks and job name lookup.
--- Dependencies: 4_Timesheet_Table_base_3, key06_job_table (from 010_create_views.sql)
+-- Dependencies: 4_Timesheet_Table_base_3, key06_job_table (from 010_create_materialized_views.sql)
 -- NOTE: DAX formula uses related(KEY02_Job_Task_Staff_ID[Job_Name]), but SQL implementation
 --       looks up directly from key06_job_table to avoid circular dependency:
 --       4_Timesheet_Table → KEYS_TIME → KEY02_Job_Task_Staff_ID_base → KEY02_Job_Task_Staff_ID
@@ -994,7 +994,7 @@ CREATE INDEX ON KEY02_Job_Task_Staff_ID_base ("Staff_Name");
 -- KEY02_Job_Task_Staff_ID_base_1
 -- DAX equivalent: KEY02_Job_Task_Staff_ID_base_1
 -- Extended view with task name, client name, and job name lookups from base KEY02.
--- Dependencies: KEY02_Job_Task_Staff_ID_base, 1_Job_Task_Details_Table, key06_job_table (from 010_create_views.sql)
+-- Dependencies: KEY02_Job_Task_Staff_ID_base, 1_Job_Task_Details_Table, key06_job_table (from 010_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS KEY02_Job_Task_Staff_ID CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS KEY02_Job_Task_Staff_ID_base_1 CASCADE;
 
@@ -1043,7 +1043,7 @@ CREATE INDEX ON KEY02_Job_Task_Staff_ID_base_1 ("Staff_Name");
 -- KEY02_Job_Task_Staff_ID_base_2
 -- DAX equivalent: KEY02_Job_Task_Staff_ID_base_2
 -- View with task category and task type enrichment from lookups.
--- Dependencies: KEY02_Job_Task_Staff_ID_base_1, key05_task_type (from 010_create_views.sql)
+-- Dependencies: KEY02_Job_Task_Staff_ID_base_1, key05_task_type (from 010_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS KEY02_Job_Task_Staff_ID CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS KEY02_Job_Task_Staff_ID_base_2 CASCADE;
 
@@ -1133,7 +1133,7 @@ CREATE INDEX ON KEY02_Job_Task_Staff_ID ("Staff_Name");
 -- DAX equivalent: SUPPORT_Staff_Leave_Allocation_byDay = FILTER(CROSSJOIN(KEY02_Job_Task_Staff_ID, KEY01_CalendarDate), KEY02_Job_Task_Staff_ID[Task_Category]="Leave Tasks")
 -- Support view combining every calendar date with every leave task assignment.
 -- Filtered to include only rows where Task_Category = "Leave Tasks" for leave allocation tracking.
--- Dependencies: KEY02_Job_Task_Staff_ID, key01_calendar_date (from 010_create_views.sql)
+-- Dependencies: KEY02_Job_Task_Staff_ID, key01_calendar_date (from 010_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay_base CASCADE;
 
@@ -1173,7 +1173,7 @@ CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base ("Job_Task_Staff_ID");
 -- SUPPORT_Staff_Leave_Allocation_byDay_base_1
 -- DAX equivalent: Extended leave allocation view with workability and staff schedule validation
 -- Extends SUPPORT_Staff_Leave_Allocation_byDay_base with workability, adjusted dates, and staff workable day-of-week lookup.
--- Dependencies: SUPPORT_Staff_Leave_Allocation_byDay_base, 1_Job_Task_Details_Table, EXCEL01_Staff_Workable_Days (from 021_create_materialized_views.sql)
+-- Dependencies: SUPPORT_Staff_Leave_Allocation_byDay_base, 1_Job_Task_Details_Table, EXCEL01_Staff_Workable_Days (from 012_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Staff_Leave_Allocation_byDay_base_1 CASCADE;
 
@@ -1292,7 +1292,7 @@ CREATE INDEX ON SUPPORT_Staff_Leave_Allocation_byDay_base_2 ("Is_DateBetweenTask
 -- Power Query equivalent: Transforms jobtask and jobtaskassignee records with client details, filtered to leave tasks only
 -- Combines job task details with staff assignments, filtered to leave task types (Holiday, Sick leave, Other leave).
 -- Only includes records with allocated minutes > 0 and specific staff members.
--- Dependencies: base tables (jobtask, jobtaskassignee, jobdetails, TOCHECK_ClientDetails from 015_create_materialized_views.sql)
+-- Dependencies: base tables (jobtask, jobtaskassignee, jobdetails, TOCHECK_ClientDetails from 011_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table_base CASCADE;
 
@@ -1331,7 +1331,7 @@ CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base ("Job_ID");
 -- SUPPORT_Job_Leave_Task_Details_Table_base_1
 -- DAX equivalent: Leave task details with adjusted start and due dates
 -- Extends SUPPORT_Job_Leave_Task_Details_Table_base with adjusted date lookups from job details.
--- Dependencies: SUPPORT_Job_Leave_Task_Details_Table_base, key06_job_table (from 010_create_views.sql)
+-- Dependencies: SUPPORT_Job_Leave_Task_Details_Table_base, key06_job_table (from 010_create_materialized_views.sql)
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS SUPPORT_Job_Leave_Task_Details_Table_base_1 CASCADE;
 
@@ -1376,4 +1376,4 @@ CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base_1 ("Staff_Name");
 CREATE INDEX ON SUPPORT_Job_Leave_Task_Details_Table_base_1 ("Job_ID");
 
 
--- Note: SUPPORT_Staff_Leave_Allocation_byDay is created in 026_create_materialized_views.sql
+-- Note: SUPPORT_Staff_Leave_Allocation_byDay is created in 014_create_materialized_views.sql

@@ -96,7 +96,7 @@
 -- =============================================================================
 -- MATERIALIZED VIEWS: Key reference tables
 -- All views in this file are MATERIALIZED for performance optimization.
--- Run this file once during initial setup, then use 030_refresh_materialized_views.sql
+-- Run this file once during initial setup, then use 020_refresh_materialized_views.sql
 -- for daily refresh via REFRESH MATERIALIZED VIEW CONCURRENTLY.
 -- =============================================================================
 -- Independent materialized views (no circular dependencies)
@@ -320,5 +320,5 @@ CREATE INDEX ON key06_job_table ("Client_Name");
 -- Core materialized views (dependent on other tables)
 -- These materialized views depend on base tables and the independent materialized
 -- views created above. Additional materialized views are defined in
--- 02_create_materialized_views.sql (1_Job_Task_Details_Table, 2_Staff_Task_Allocation_byDay, etc.)
+-- 013_create_materialized_views.sql, 014_create_materialized_views.sql (1_Job_Task_Details_Table, 2_Staff_Task_Allocation_byDay, etc.)
 -- =============================================================================
