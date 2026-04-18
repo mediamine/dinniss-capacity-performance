@@ -500,15 +500,17 @@ SELECT
         THEN COALESCE(t."Total_Leave_Hrs", 0)
     END AS "Total_Leave_Hrs_between_Workable_Days",
     -- Rev_Workable_Days_Between_Task: IF(Is_Task_a_Leave=FALSE, (Workable_Hrs - Total_Leave_Hrs) / 8, BLANK())
+    -- GREATEST(0, ...) prevents -0 / small negatives when Total_Leave_Hrs equals or
+    -- marginally exceeds Workable_Days_Between_Task * 8 due to floating-point imprecision.
     CASE
         WHEN NOT (b."Task_Name" ILIKE '%Holiday%' OR b."Task_Name" ILIKE '%Sick Leave%' OR b."Task_Name" ILIKE '%Other leave%')
-        THEN (COALESCE(w."Workable_Days_Between_Task", 0) * 8 - COALESCE(t."Total_Leave_Hrs", 0)) / 8.0
+        THEN GREATEST(0, (COALESCE(w."Workable_Days_Between_Task", 0) * 8 - COALESCE(t."Total_Leave_Hrs", 0)) / 8.0)
     END AS "Rev_Workable_Days_Between_Task",
     -- Avg_Mins_perWorkDay_WITHOUT_Leave: IF(Is_Task_a_Leave=FALSE, DIVIDE(Task_Allocated_Mins, Rev_Workable_Days, BLANK()), BLANK())
     CASE
         WHEN NOT (b."Task_Name" ILIKE '%Holiday%' OR b."Task_Name" ILIKE '%Sick Leave%' OR b."Task_Name" ILIKE '%Other leave%')
         THEN b."Task_Allocated_Mins"::NUMERIC / NULLIF(
-            (COALESCE(w."Workable_Days_Between_Task", 0) * 8 - COALESCE(t."Total_Leave_Hrs", 0)) / 8.0,
+            GREATEST(0, (COALESCE(w."Workable_Days_Between_Task", 0) * 8 - COALESCE(t."Total_Leave_Hrs", 0)) / 8.0),
             0
         )
     END AS "Avg_Mins_perWorkDay_WITHOUT_Leave"
