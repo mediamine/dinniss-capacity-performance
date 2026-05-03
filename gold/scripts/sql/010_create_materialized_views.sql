@@ -100,7 +100,6 @@
 -- for daily refresh via REFRESH MATERIALIZED VIEW CONCURRENTLY.
 -- =============================================================================
 -- Independent materialized views (no circular dependencies)
-DROP VIEW IF EXISTS key01_calendar_date CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS key01_calendar_date CASCADE;
 
 
@@ -161,7 +160,6 @@ FROM
 CREATE INDEX ON key01_calendar_date ("Date");
 
 
-DROP VIEW IF EXISTS key08_incentive_table_display_measure CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS key08_incentive_table_display_measure CASCADE;
 
 
@@ -195,7 +193,6 @@ FROM
 
 
 -- Dependent materialized views (lookups from base tables)
-DROP VIEW IF EXISTS key03_staff_table CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS key03_staff_table CASCADE;
 
 
@@ -220,7 +217,6 @@ WHERE
 ORDER BY "Name";
 
 
-DROP VIEW IF EXISTS key05_task_type CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS key05_task_type CASCADE;
 
 
@@ -232,7 +228,6 @@ FROM
     task;
 
 
-DROP VIEW IF EXISTS key04_task_name CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS key04_task_name CASCADE;
 
 
@@ -274,7 +269,6 @@ FROM
     ) sub;
 
 
-DROP VIEW IF EXISTS key06_job_table CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS key06_job_table CASCADE;
 
 
