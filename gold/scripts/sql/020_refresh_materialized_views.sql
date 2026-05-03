@@ -9,8 +9,16 @@
 -- views will read stale data from their sources.
 --
 -- CONCURRENTLY: allows reads during refresh so Power BI is not blocked.
--- Requires a unique index on the view. Used here only for the final user-facing
--- views; intermediate base views use plain REFRESH (short lock, no index required).
+-- Requires a unique index on the view. Used here only for the 5 final
+-- user-facing views; intermediate base views use plain REFRESH (short lock,
+-- no index required).
+--
+-- HISTORY: CONCURRENTLY was briefly removed because it appeared to bloat the
+-- Docker volume by ~90 GB per refresh. Investigation showed the bloat was
+-- actually transient temp/WAL files held by the WSL2 ext4.vhdx (which never
+-- shrinks back), not dead tuples in the matviews. CONCURRENTLY is being
+-- restored for testing on a standard (non-Docker) PostgreSQL installation
+-- where the WSL2 high-water-mark issue does not apply.
 --
 -- NOTE: key07_is_billable is a regular VIEW (not materialized) and does not need
 -- refreshing.
@@ -99,3 +107,14 @@ REFRESH MATERIALIZED VIEW key07_is_billable;
 -- -----------------------------------------------------------------------------
 REFRESH MATERIALIZED VIEW "3_Staff_Performance_Table_base";
 REFRESH MATERIALIZED VIEW CONCURRENTLY "3_Staff_Performance_Table";
+
+-- -----------------------------------------------------------------------------
+-- Post-refresh vacuum: reclaims dead tuples left by CONCURRENTLY refreshes
+-- back into PostgreSQL's free-space map so storage does not grow unboundedly
+-- across daily runs.
+-- -----------------------------------------------------------------------------
+VACUUM ANALYZE "4_Timesheet_Table";
+VACUUM ANALYZE KEY02_Job_Task_Staff_ID;
+VACUUM ANALYZE "1_Job_Task_Details_Table";
+VACUUM ANALYZE "2_Staff_Task_Allocation_byDay";
+VACUUM ANALYZE "3_Staff_Performance_Table";
