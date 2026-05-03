@@ -2,26 +2,58 @@
 """
 Post-Sync SQL Script Runner
 
-This module runs SQL scripts after data sync completes.
-Use it to create views, indexes, materialized views, or run any post-processing SQL.
+Runs SQL scripts in dependency order after data sync completes.
+
+Phases (run in this order):
+  010  keys         Key reference tables
+  011  invoice      Invoice support tables
+  012  excel        Excel imports
+  013  timesheet    Job task & timesheet details
+  014  allocation   Staff task allocation by day
+  015  performance  Staff performance table
+  020  refresh      Refresh all materialized views (daily)
+  030  powerbi      Power BI wrapper views
+
+Usage examples:
+  # Run everything from scratch
+  python 06_sql_script_runner.py --all
+
+  # Rebuild only the create phase (010-015)
+  python 06_sql_script_runner.py --create
+
+  # Daily refresh only
+  python 06_sql_script_runner.py --refresh
+
+  # Refresh then expose to Power BI
+  python 06_sql_script_runner.py --refresh --powerbi
+
+  # Rebuild a single phase
+  python 06_sql_script_runner.py --performance
+
+  # Preview what would run without executing
+  python 06_sql_script_runner.py --all --dry-run
 """
 
+import argparse
 import os
 import sys
 import logging
-from typing import List, Optional
+import re
+from pathlib import Path
+from typing import List
 
-# import sqlparse  # For more robust SQL splitting if needed
 import psycopg2
-from psycopg2 import sql
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configure logging
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler("logs/06_sql_script_runner.log"),
         logging.StreamHandler(sys.stdout),
@@ -29,368 +61,267 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Phase registry
+# Each entry: (file_number_prefix, filename, description)
+# Order here is the canonical execution order.
+# ---------------------------------------------------------------------------
+SQL_DIR = Path(__file__).parent.parent / "sql"
+
+PHASES: dict[str, tuple[str, str]] = {
+    "keys":        ("010_create_materialized_views.sql",  "Key reference tables"),
+    "invoice":     ("011_create_materialized_views.sql",  "Invoice support tables"),
+    "excel":       ("012_create_materialized_views.sql",  "Excel imports"),
+    "timesheet":   ("013_create_materialized_views.sql",  "Job task & timesheet details"),
+    "allocation":  ("014_create_materialized_views.sql",  "Staff task allocation by day"),
+    "performance": ("015_create_materialized_views.sql",  "Staff performance table"),
+    "refresh":     ("020_refresh_materialized_views.sql", "Refresh all materialized views"),
+    "powerbi":     ("030_create_powerbi_views.sql",       "Power BI wrapper views"),
+}
+
+# Predefined groups (order matches PHASES key order above)
+GROUPS: dict[str, List[str]] = {
+    "create": ["keys", "invoice", "excel", "timesheet", "allocation", "performance"],
+    "all":    ["keys", "invoice", "excel", "timesheet", "allocation", "performance",
+               "refresh", "powerbi"],
+}
+
+
+# ---------------------------------------------------------------------------
+# SQL splitting helper
+# ---------------------------------------------------------------------------
+
+def _split_statements(sql_content: str) -> List[str]:
+    """
+    Split SQL content into individual statements on semicolons.
+    Strips comments first so that semicolons inside comments don't produce
+    spurious chunks, then drops empty or whitespace-only results.
+    """
+    # Remove block comments before splitting so embedded semicolons are harmless
+    stripped_content = re.sub(r"/\*.*?\*/", "", sql_content, flags=re.DOTALL)
+    # Remove line comments before splitting so embedded semicolons are harmless
+    stripped_content = re.sub(r"--[^\n]*", "", stripped_content)
+
+    statements = []
+    for chunk in stripped_content.split(";"):
+        stmt = chunk.strip()
+        if stmt:
+            statements.append(stmt)
+    return statements
+
+
+# ---------------------------------------------------------------------------
+# Runner class
+# ---------------------------------------------------------------------------
 
 class SQLScriptRunner:
-    """Execute SQL scripts after data synchronization"""
+    """Execute SQL scripts in dependency order."""
 
     def __init__(self, connection_string: str):
-        """
-        Initialize SQL script runner
-
-        Args:
-            connection_string: PostgreSQL connection string
-        """
         self.connection_string = connection_string
         self.conn = None
 
+    # ------------------------------------------------------------------
+    # Connection
+    # ------------------------------------------------------------------
+
     def connect(self):
-        """Establish database connection"""
         try:
             self.conn = psycopg2.connect(self.connection_string)
-            self.conn.autocommit = False
-            logger.info("SQL Script Runner connected to PostgreSQL")
+            # autocommit=True is required for REFRESH MATERIALIZED VIEW CONCURRENTLY
+            # (which cannot run inside a transaction block). It also works cleanly
+            # for all DDL statements (CREATE/DROP MATERIALIZED VIEW, CREATE INDEX).
+            self.conn.autocommit = True
+            logger.info("Connected to PostgreSQL")
         except psycopg2.Error as e:
-            logger.error(f"Error connecting to PostgreSQL: {e}")
+            logger.error(f"Connection failed: {e}")
             raise
 
     def disconnect(self):
-        """Close database connection"""
-        if self.conn:
+        if self.conn and not self.conn.closed:
             self.conn.close()
-            logger.info("SQL Script Runner disconnected from PostgreSQL")
+            logger.info("Disconnected from PostgreSQL")
 
-    def run_sql_file(self, file_path: str, continue_on_error: bool = False) -> bool:
-        """
-        Execute SQL from a file
+    # ------------------------------------------------------------------
+    # Core execution
+    # ------------------------------------------------------------------
 
-        Args:
-            file_path: Path to SQL file
-            continue_on_error: If True, continue executing even if errors occur
-
-        Returns:
-            True if successful, False if errors occurred
-        """
-        if not os.path.exists(file_path):
+    def run_sql_file(self, file_path: Path, continue_on_error: bool = False) -> bool:
+        """Execute all statements in a SQL file."""
+        if not file_path.exists():
             logger.error(f"SQL file not found: {file_path}")
             return False
 
-        logger.info(f"Executing SQL file: {file_path}")
-
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                sql_content = f.read()
-
-            return self.run_sql_script(sql_content, file_path, continue_on_error)
-
-        except Exception as e:
-            logger.error(f"Error reading SQL file {file_path}: {e}")
+            sql_content = file_path.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.error(f"Cannot read {file_path}: {e}")
             return False
 
-    def run_sql_script(
-        self,
-        sql_content: str,
-        script_name: str = "inline",
-        continue_on_error: bool = False,
-    ) -> bool:
-        """
-        Execute SQL script content
-
-        Args:
-            sql_content: SQL script as string
-            script_name: Name for logging purposes
-            continue_on_error: If True, continue executing even if errors occur
-
-        Returns:
-            True if successful, False if errors occurred
-        """
-        # TODO: Use sqlparse for more robust splitting if needed
-        # Parse statements properly
-        # statements = sqlparse.split(sql_content)
-
-        # Add dry-run option
-        # def validate_sql(self, sql_content: str) -> bool:
-        #     try:
-        #         parsed = sqlparse.parse(sql_content)
-        #         return True
-        #     except Exception as e:
-        #         logger.error(f"SQL validation failed: {e}")
-        #         return False
-
-        # Split by semicolons to get individual statements
-        # Note: This simple split won't handle semicolons in strings correctly
-        # For production, consider using a proper SQL parser
-        statements = [stmt.strip() for stmt in sql_content.split(";") if stmt.strip()]
-
-        logger.info(f"Executing {len(statements)} SQL statements from {script_name}")
+        statements = _split_statements(sql_content)
+        logger.info(f"  {file_path.name} — {len(statements)} statements")
 
         success = True
         executed = 0
-        failed = 0
 
         with self.conn.cursor() as cursor:
-            for i, statement in enumerate(statements, 1):
+            for i, stmt in enumerate(statements, 1):
                 try:
-                    logger.debug(f"Executing statement {i}/{len(statements)}")
-                    cursor.execute(statement)
+                    cursor.execute(stmt)
                     executed += 1
-
                 except psycopg2.Error as e:
-                    failed += 1
-                    logger.error(f"Error in statement {i}: {e}")
-                    logger.error(f"Statement: {statement[:200]}...")
-
+                    logger.error(f"  Statement {i} failed: {e}")
+                    logger.debug(f"  Statement: {stmt[:300]}")
                     if continue_on_error:
-                        self.conn.rollback()
-                        logger.warning("Continuing despite error...")
+                        logger.warning("  Continuing after error")
                         success = False
                     else:
-                        self.conn.rollback()
-                        logger.error("Aborting due to error")
+                        logger.error("  Aborting file execution")
                         return False
 
-        # Commit if we got here
-        try:
-            self.conn.commit()
-            logger.info(
-                f"SQL script {script_name} completed: {executed} successful, {failed} failed"
-            )
-            return success
-        except psycopg2.Error as e:
-            logger.error(f"Error committing transaction: {e}")
-            self.conn.rollback()
+        logger.info(f"  {file_path.name} — {executed}/{len(statements)} OK")
+        return success
+
+    # ------------------------------------------------------------------
+    # Phase execution
+    # ------------------------------------------------------------------
+
+    def run_phase(self, phase: str, continue_on_error: bool = False) -> bool:
+        """Execute a single named phase."""
+        if phase not in PHASES:
+            logger.error(f"Unknown phase '{phase}'. Available: {list(PHASES)}")
             return False
 
-    def run_multiple_files(
-        self, file_paths: List[str], continue_on_error: bool = False
-    ) -> bool:
-        """
-        Execute multiple SQL files in order
+        filename, description = PHASES[phase]
+        file_path = SQL_DIR / filename
 
-        Args:
-            file_paths: List of paths to SQL files
-            continue_on_error: If True, continue to next file even if current fails
+        logger.info(f"Phase [{phase}] {description}")
+        return self.run_sql_file(file_path, continue_on_error)
 
-        Returns:
-            True if all successful, False if any errors occurred
-        """
-        logger.info(f"Executing {len(file_paths)} SQL files")
-
+    def run_phases(self, phases: List[str], continue_on_error: bool = False) -> bool:
+        """Execute a list of phases in order."""
         all_success = True
-        for file_path in file_paths:
-            success = self.run_sql_file(file_path, continue_on_error)
-            if not success:
+        for phase in phases:
+            ok = self.run_phase(phase, continue_on_error)
+            if not ok:
                 all_success = False
                 if not continue_on_error:
-                    logger.error(f"Stopping execution due to error in {file_path}")
+                    logger.error(f"Stopping at phase [{phase}]")
                     return False
-
         return all_success
 
-    def run_sql_directory(
-        self,
-        directory_path: str,
-        pattern: str = "*.sql",
-        continue_on_error: bool = False,
-    ) -> bool:
-        """
-        Execute all SQL files in a directory
 
-        Args:
-            directory_path: Path to directory containing SQL files
-            pattern: File pattern to match (default: *.sql)
-            continue_on_error: If True, continue even if files fail
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
-        Returns:
-            True if all successful, False if any errors occurred
-        """
-        import glob
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="06_sql_script_runner.py",
+        description="Run SQL view-creation and refresh scripts in dependency order.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="\n".join([
+            "Phases (run in this order):",
+            *(f"  --{name:<14} {fname}  —  {desc}"
+              for name, (fname, desc) in PHASES.items()),
+            "",
+            "Groups:",
+            "  --create        runs: " + ", ".join(f"--{p}" for p in GROUPS["create"]),
+            "  --all           runs: " + ", ".join(f"--{p}" for p in GROUPS["all"]),
+        ]),
+    )
 
-        if not os.path.isdir(directory_path):
-            logger.error(f"Directory not found: {directory_path}")
-            return False
+    # Group flags
+    parser.add_argument("--all",            action="store_true", help="Run all phases in order")
+    parser.add_argument("--create",         action="store_true", help="Run create phases 010–015")
+    parser.add_argument("--refresh",        action="store_true", help="Run refresh phase 020")
+    parser.add_argument("--powerbi",        action="store_true", help="Run Power BI phase 030")
+    parser.add_argument("--skip-refresh",   action="store_true", help="Exclude refresh phase (020) from any group or --all run")
 
-        # Find all matching SQL files
-        search_pattern = os.path.join(directory_path, pattern)
-        sql_files = sorted(glob.glob(search_pattern))
+    # Individual phase flags
+    for name, (_, desc) in PHASES.items():
+        if name not in ("refresh", "powerbi"):   # already added as group flags above
+            parser.add_argument(f"--{name}", action="store_true", help=f"Run phase: {desc}")
 
-        if not sql_files:
-            logger.warning(f"No SQL files found matching {search_pattern}")
-            return True
+    # Behaviour flags
+    parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Continue to next phase/statement when an error occurs",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print which phases would run without executing anything",
+    )
 
-        logger.info(f"Found {len(sql_files)} SQL files in {directory_path}")
-
-        return self.run_multiple_files(sql_files, continue_on_error)
-
-    def create_view_from_query(
-        self,
-        view_name: str,
-        query: str,
-        replace: bool = True,
-        materialized: bool = False,
-    ) -> bool:
-        """
-        Create a view or materialized view from a query
-
-        Args:
-            view_name: Name of the view to create
-            query: SELECT query for the view
-            replace: If True, use CREATE OR REPLACE (regular views only)
-            materialized: If True, create materialized view
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            with self.conn.cursor() as cursor:
-                if materialized:
-                    # Materialized views don't support OR REPLACE
-                    cursor.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view_name}")
-                    create_sql = f"CREATE MATERIALIZED VIEW {view_name} AS {query}"
-                else:
-                    if replace:
-                        create_sql = f"CREATE OR REPLACE VIEW {view_name} AS {query}"
-                    else:
-                        create_sql = f"CREATE VIEW {view_name} AS {query}"
-
-                logger.info(
-                    f"Creating {'materialized ' if materialized else ''}view: {view_name}"
-                )
-                cursor.execute(create_sql)
-                self.conn.commit()
-                logger.info(
-                    f"Successfully created {'materialized ' if materialized else ''}view: {view_name}"
-                )
-                return True
-
-        except psycopg2.Error as e:
-            logger.error(f"Error creating view {view_name}: {e}")
-            self.conn.rollback()
-            return False
-
-    def refresh_materialized_view(
-        self, view_name: str, concurrently: bool = False
-    ) -> bool:
-        """
-        Refresh a materialized view
-
-        Args:
-            view_name: Name of the materialized view
-            concurrently: If True, refresh concurrently (requires unique index)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            with self.conn.cursor() as cursor:
-                refresh_sql = f"REFRESH MATERIALIZED VIEW {'CONCURRENTLY ' if concurrently else ''}{view_name}"
-                logger.info(f"Refreshing materialized view: {view_name}")
-                cursor.execute(refresh_sql)
-                self.conn.commit()
-                logger.info(f"Successfully refreshed materialized view: {view_name}")
-                return True
-
-        except psycopg2.Error as e:
-            logger.error(f"Error refreshing materialized view {view_name}: {e}")
-            self.conn.rollback()
-            return False
+    return parser
 
 
-def run_post_sync_sql(
-    connection_string: str,
-    sql_files: Optional[List[str]] = None,
-    sql_directory: Optional[str] = None,
-    refresh_materialized_views: Optional[List[str]] = None,
-) -> bool:
-    """
-    Convenience function to run post-sync SQL operations
+def _resolve_phases(args: argparse.Namespace) -> List[str]:
+    """Return the ordered list of phases to execute based on parsed args."""
+    if args.all:
+        phases = list(GROUPS["all"])
+        if args.skip_refresh:
+            phases = [p for p in phases if p != "refresh"]
+        return phases
 
-    Args:
-        connection_string: PostgreSQL connection string
-        sql_files: List of SQL file paths to execute
-        sql_directory: Directory containing SQL files to execute
-        refresh_materialized_views: List of materialized view names to refresh
+    selected: List[str] = []
 
-    Returns:
-        True if all operations successful, False otherwise
-    """
-    runner = SQLScriptRunner(connection_string)
+    # Group: --create expands to 010-015
+    if args.create:
+        for p in GROUPS["create"]:
+            if p not in selected:
+                selected.append(p)
 
-    try:
-        runner.connect()
+    # Individual phases (in canonical order)
+    for name in PHASES:
+        flag_val = getattr(args, name.replace("-", "_"), False)
+        if flag_val and name not in selected:
+            selected.append(name)
 
-        all_success = True
+    if args.skip_refresh and "refresh" in selected:
+        selected.remove("refresh")
 
-        # Run individual SQL files
-        if sql_files:
-            logger.info("Executing individual SQL files")
-            for sql_file in sql_files:
-                if not runner.run_sql_file(sql_file, continue_on_error=False):
-                    all_success = False
-                    break
-
-        # Run SQL directory
-        if sql_directory and all_success:
-            logger.info(f"Executing SQL files from directory: {sql_directory}")
-            if not runner.run_sql_directory(sql_directory, continue_on_error=False):
-                all_success = False
-
-        # Refresh materialized views
-        if refresh_materialized_views and all_success:
-            logger.info("Refreshing materialized views")
-            for view_name in refresh_materialized_views:
-                if not runner.refresh_materialized_view(view_name):
-                    all_success = False
-                    break
-
-        return all_success
-
-    finally:
-        runner.disconnect()
+    # Preserve canonical execution order
+    canonical = list(PHASES.keys())
+    return sorted(selected, key=lambda p: canonical.index(p))
 
 
-# Example usage functions
-def example_create_views():
-    """Example: Create views after data sync"""
+def main():
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    phases = _resolve_phases(args)
+
+    if not phases:
+        parser.print_help()
+        sys.exit(0)
+
+    # Dry-run: just list what would run
+    if args.dry_run:
+        print("Dry run — phases that would execute:")
+        for phase in phases:
+            filename, description = PHASES[phase]
+            path = SQL_DIR / filename
+            exists = "✓" if path.exists() else "✗ NOT FOUND"
+            print(f"  [{phase}]  {filename}  ({description})  {exists}")
+        sys.exit(0)
 
     connection_string = os.getenv("POSTGRES_CONNECTION")
-    runner = SQLScriptRunner(connection_string)
+    if not connection_string:
+        logger.error("POSTGRES_CONNECTION environment variable not set")
+        sys.exit(1)
 
+    runner = SQLScriptRunner(connection_string)
     try:
         runner.connect()
-
-        # Example 1: Create a simple view
-        # runner.create_view_from_query(
-        #     view_name='vw_active_customers',
-        #     query='''
-        #         SELECT customer_id, customer_name, email, created_date
-        #         FROM excel_customers
-        #         WHERE status = 'Active'
-        #         ORDER BY created_date DESC
-        #     '''
-        # )
-
-        # Example 2: Create a materialized view for reporting
-        # runner.create_view_from_query(
-        #     view_name='mvw_sales_summary',
-        #     query='''
-        #         SELECT
-        #             DATE_TRUNC('month', sale_date) as month,
-        #             SUM(amount) as total_sales,
-        #             COUNT(*) as transaction_count,
-        #             AVG(amount) as avg_sale
-        #         FROM excel_sales
-        #         GROUP BY DATE_TRUNC('month', sale_date)
-        #     ''',
-        #     materialized=True
-        # )
-
-        # Example 3: Run SQL file
-        runner.run_sql_file("gold/scripts/sql/01_create_views.sql")
-
+        ok = runner.run_phases(phases, continue_on_error=args.continue_on_error)
     finally:
         runner.disconnect()
+
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
-    # This allows the module to be run standalone for testing
-    example_create_views()
+    main()
