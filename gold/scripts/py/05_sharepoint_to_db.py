@@ -222,6 +222,21 @@ class PostgresDestination:
             self.conn.close()
             logger.info("Disconnected from PostgreSQL")
 
+    def table_exists(self, table_name: str) -> bool:
+        """Check if table exists"""
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                    AND table_name = %s
+                )
+            """,
+                (table_name,),
+            )
+            return cursor.fetchone()[0]
+
     def drop_table(self, table_name: str):
         """Drop a table if it exists"""
         with self.conn.cursor() as cursor:
@@ -320,15 +335,29 @@ class PostgresDestination:
                 logger.error(f"Error creating view {view_name}: {e}")
                 raise
 
-    def sync_table(self, table_name: str, df: pd.DataFrame):
-        """Drop, recreate, and populate a table with DataFrame data"""
+    def sync_table(self, table_name: str, df: pd.DataFrame, drop_and_recreate: bool = True):
+        """
+        Sync DataFrame to table
+
+        Args:
+            table_name: Name of table to sync
+            df: DataFrame with data
+            drop_and_recreate: If True, drop and recreate table. If False, only create if missing.
+        """
         try:
             table_name = self._normalize_table_name(table_name)
             logger.info(f"Syncing table: {table_name}")
 
-            self.drop_table(table_name)
-            self.create_table_from_dataframe(table_name, df)
-            self.insert_dataframe(table_name, df)
+            if drop_and_recreate:
+                self.drop_table(table_name)
+                self.create_table_from_dataframe(table_name, df)
+                self.insert_dataframe(table_name, df)
+            else:
+                # Only create if table doesn't exist
+                if not self.table_exists(table_name):
+                    self.create_table_from_dataframe(table_name, df)
+                self.insert_dataframe(table_name, df)
+
             self.create_view(table_name, df)
 
             self.conn.commit()
@@ -357,7 +386,10 @@ class PostgresDestination:
 
 
 def sync_excel_to_postgres(
-    file_url: str, postgres_dest: PostgresDestination, table_prefix: str = ""
+    file_url: str,
+    postgres_dest: PostgresDestination,
+    table_prefix: str = "",
+    drop_and_recreate: bool = True,
 ):
     """
     Sync an Excel file from public URL to PostgreSQL
@@ -366,6 +398,7 @@ def sync_excel_to_postgres(
         file_url: Public URL to Excel file
         postgres_dest: PostgreSQL destination instance
         table_prefix: Optional prefix for table names
+        drop_and_recreate: If True, drop and recreate tables (default: True). If False, only create if missing.
     """
     logger.info("=" * 80)
     logger.info(f"Starting Excel sync at {datetime.now()}")
@@ -386,7 +419,7 @@ def sync_excel_to_postgres(
         # Sync each sheet to a table
         for sheet_name, df in sheets_data.items():
             table_name = f"{table_prefix}{sheet_name}"
-            postgres_dest.sync_table(table_name, df)
+            postgres_dest.sync_table(table_name, df, drop_and_recreate)
 
         logger.info("=" * 80)
         logger.info(f"Excel sync completed successfully at {datetime.now()}")
@@ -399,7 +432,10 @@ def sync_excel_to_postgres(
 
 
 def sync_multiple_files(
-    file_urls: List[str], postgres_dest: PostgresDestination, table_prefix: str = ""
+    file_urls: List[str],
+    postgres_dest: PostgresDestination,
+    table_prefix: str = "",
+    drop_and_recreate: bool = True,
 ):
     """Sync multiple Excel files to PostgreSQL"""
     total_files = len(file_urls)
@@ -409,7 +445,7 @@ def sync_multiple_files(
     for i, file_url in enumerate(file_urls, 1):
         logger.info(f"Processing file {i}/{total_files}: {file_url[:100]}...")
         try:
-            sync_excel_to_postgres(file_url, postgres_dest, table_prefix)
+            sync_excel_to_postgres(file_url, postgres_dest, table_prefix, drop_and_recreate)
             successful += 1
         except Exception as e:
             logger.error(f"Failed to sync file {file_url}: {e}")
@@ -431,6 +467,7 @@ def main():
     EXCEL_FILE_URLS = os.getenv("EXCEL_FILE_URLS", "")
 
     TABLE_PREFIX_EXCEL = os.getenv("TABLE_PREFIX_EXCEL", "")
+    DROP_AND_RECREATE = os.getenv("DROP_AND_RECREATE", "true").lower() == "true"
     SYNC_SCHEDULE = os.getenv("SYNC_SCHEDULE", "0 2 * * *")  # Default: 2 AM daily
 
     # Validate configuration
@@ -450,6 +487,7 @@ def main():
         sys.exit(1)
 
     logger.info(f"Configured to sync {len(file_urls)} file(s)")
+    logger.info(f"Drop and recreate tables: {DROP_AND_RECREATE}")
 
     # Initialize PostgreSQL connection
     postgres_dest = PostgresDestination(POSTGRES_CONNECTION)
@@ -459,9 +497,13 @@ def main():
         try:
             postgres_dest.connect()
             if len(file_urls) == 1:
-                sync_excel_to_postgres(file_urls[0], postgres_dest, TABLE_PREFIX_EXCEL)
+                sync_excel_to_postgres(
+                    file_urls[0], postgres_dest, TABLE_PREFIX_EXCEL, DROP_AND_RECREATE
+                )
             else:
-                sync_multiple_files(file_urls, postgres_dest, TABLE_PREFIX_EXCEL)
+                sync_multiple_files(
+                    file_urls, postgres_dest, TABLE_PREFIX_EXCEL, DROP_AND_RECREATE
+                )
         finally:
             postgres_dest.disconnect()
 

@@ -208,7 +208,7 @@ class PostgresSCD2Destination:
             cursor.execute(
                 """
                 SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
+                    SELECT FROM information_schema.tables
                     WHERE table_schema = 'public'
                     AND table_name = %s
                 )
@@ -216,6 +216,20 @@ class PostgresSCD2Destination:
                 (table_name,),
             )
             return cursor.fetchone()[0]
+
+    def drop_table(self, table_name: str):
+        """Drop a table if it exists"""
+        with self.conn.cursor() as cursor:
+            try:
+                cursor.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
+                        sql.Identifier(table_name)
+                    )
+                )
+                logger.info(f"Dropped table: {table_name}")
+            except psycopg2.Error as e:
+                logger.error(f"Error dropping table {table_name}: {e}")
+                raise
 
     def create_scd2_table(self, table_name: str, columns: List[Dict[str, Any]]):
         """Create SCD Type 2 table with versioning columns"""
@@ -518,6 +532,7 @@ def scd2_sync(
     table_prefix: str = "",
     default_primary_key: str = "id",
     create_views: bool = True,
+    drop_and_recreate: bool = False,
 ):
     """
     Perform SCD Type 2 sync from SyncHub to PostgreSQL
@@ -529,10 +544,12 @@ def scd2_sync(
         table_prefix: Prefix for destination table names
         default_primary_key: Default primary key column name if none found
         create_views: If True, create views for current records (default: True)
+        drop_and_recreate: If True, drop and recreate tables. If False, do incremental sync (default: False)
     """
     logger.info("=" * 80)
     logger.info(f"Starting SCD Type 2 sync at {datetime.now()}")
     logger.info(f"Create current views: {create_views}")
+    logger.info(f"Drop and recreate tables: {drop_and_recreate}")
     logger.info("=" * 80)
 
     try:
@@ -573,7 +590,12 @@ def scd2_sync(
                         )
                         primary_keys = []
 
-                if not postgres_dest.table_exists(dest_table):
+                if drop_and_recreate:
+                    # Drop existing table to start fresh
+                    postgres_dest.drop_table(dest_table)
+                    postgres_dest.create_scd2_table(dest_table, columns)
+                elif not postgres_dest.table_exists(dest_table):
+                    # Only create if table doesn't exist
                     postgres_dest.create_scd2_table(dest_table, columns)
 
                 source_data = synchub_source.get_table_data(source_schema, source_table)
@@ -628,6 +650,7 @@ def main():
     TABLE_PREFIX = os.getenv("TABLE_PREFIX", "synchub_")
     DEFAULT_PRIMARY_KEY = os.getenv("DEFAULT_PRIMARY_KEY", "id")
     CREATE_VIEWS = os.getenv("CREATE_VIEWS", "true").lower() == "true"
+    DROP_AND_RECREATE = os.getenv("DROP_AND_RECREATE", "false").lower() == "true"
     SYNC_SCHEDULE = os.getenv("SYNC_SCHEDULE", "1d")
 
     if not all(
@@ -657,6 +680,7 @@ def main():
             TABLE_PREFIX,
             DEFAULT_PRIMARY_KEY,
             CREATE_VIEWS,
+            DROP_AND_RECREATE,
         )
 
     # Parse schedule
