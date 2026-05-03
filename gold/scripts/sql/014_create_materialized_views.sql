@@ -989,7 +989,7 @@ SELECT
 FROM base3;
 
 
-CREATE INDEX ON "1_Job_Task_Details_Table" ("Job_Task_Staff_ID");
+CREATE UNIQUE INDEX ON "1_Job_Task_Details_Table" ("Job_Task_Staff_ID");
 CREATE INDEX ON "1_Job_Task_Details_Table" ("Job_ID");
 CREATE INDEX ON "1_Job_Task_Details_Table" ("Staff_Name");
 
@@ -1121,6 +1121,7 @@ SELECT
 FROM base2;
 
 
+CREATE UNIQUE INDEX ON "2_Staff_Task_Allocation_byDay" ("Job_Task_Staff_ID", "Date");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Date");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Job_Task_Staff_ID");
 CREATE INDEX ON "2_Staff_Task_Allocation_byDay" ("Staff_Name");

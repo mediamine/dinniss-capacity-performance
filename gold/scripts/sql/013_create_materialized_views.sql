@@ -910,6 +910,7 @@ FROM
     "4_Timesheet_Table_base_3" b;
 
 
+CREATE UNIQUE INDEX ON "4_Timesheet_Table" ("Timesheet_UUID");
 CREATE INDEX ON "4_Timesheet_Table" ("Job_Task_Staff_ID");
 CREATE INDEX ON "4_Timesheet_Table" ("Job_ID");
 CREATE INDEX ON "4_Timesheet_Table" ("Staff_Name");
@@ -1124,7 +1125,7 @@ FROM
     KEY02_Job_Task_Staff_ID_base_2 b;
 
 
-CREATE INDEX ON KEY02_Job_Task_Staff_ID ("Job_Task_Staff_ID");
+CREATE UNIQUE INDEX ON KEY02_Job_Task_Staff_ID ("Job_Task_Staff_ID");
 CREATE INDEX ON KEY02_Job_Task_Staff_ID ("Job_ID");
 CREATE INDEX ON KEY02_Job_Task_Staff_ID ("Staff_Name");
 

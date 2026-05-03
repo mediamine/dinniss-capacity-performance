@@ -375,6 +375,7 @@ SELECT
 FROM base3;
 
 
+CREATE UNIQUE INDEX ON "3_Staff_Performance_Table" ("Date", "Staff_UUID");
 CREATE INDEX ON "3_Staff_Performance_Table" ("Date");
 CREATE INDEX ON "3_Staff_Performance_Table" ("Staff_Name");
 CREATE INDEX ON "3_Staff_Performance_Table" ("Staff_UUID");
