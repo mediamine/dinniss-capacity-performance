@@ -11,8 +11,8 @@ Phases (run in this order):
   013  timesheet    Job task & timesheet details
   014  allocation   Staff task allocation by day
   015  performance  Staff performance table
-  020  refresh      Refresh all materialized views (daily)
-  030  powerbi      Power BI wrapper views
+  020  powerbi      Power BI wrapper views
+  110  refresh      Refresh all materialized views (daily)
 
 Usage examples:
   # Run everything from scratch
@@ -39,6 +39,7 @@ import os
 import sys
 import logging
 import re
+import time
 from pathlib import Path
 from typing import List
 
@@ -50,12 +51,24 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+# Force UTF-8 on stdout/stderr so box-drawing chars (└─) and em-dashes (—) in
+# log lines work on Windows consoles (default cp1252 raises UnicodeEncodeError).
+# Linux/macOS default to UTF-8 already, so this block is a no-op on those.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except AttributeError:
+        import codecs
+        sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "replace")
+        sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "replace")
+
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("logs/06_sql_script_runner.log"),
+        logging.FileHandler("logs/06_sql_script_runner.log", encoding="utf-8"),
         logging.StreamHandler(sys.stdout),
     ],
 )
@@ -75,15 +88,15 @@ PHASES: dict[str, tuple[str, str]] = {
     "timesheet":   ("013_create_materialized_views.sql",  "Job task & timesheet details"),
     "allocation":  ("014_create_materialized_views.sql",  "Staff task allocation by day"),
     "performance": ("015_create_materialized_views.sql",  "Staff performance table"),
-    "refresh":     ("020_refresh_materialized_views.sql", "Refresh all materialized views"),
-    "powerbi":     ("030_create_powerbi_views.sql",       "Power BI wrapper views"),
+    "powerbi":     ("020_create_powerbi_views.sql",       "Power BI wrapper views"),
+    "refresh":     ("110_refresh_materialized_views.sql", "Refresh all materialized views"),
 }
 
 # Predefined groups (order matches PHASES key order above)
 GROUPS: dict[str, List[str]] = {
     "create": ["keys", "invoice", "excel", "timesheet", "allocation", "performance"],
     "all":    ["keys", "invoice", "excel", "timesheet", "allocation", "performance",
-               "refresh", "powerbi"],
+               "powerbi", "refresh"],
 }
 
 
@@ -110,6 +123,39 @@ def _split_statements(sql_content: str) -> List[str]:
     return statements
 
 
+# Maps the leading keyword pattern to (kind label, regex capturing the object name).
+# Order matters — longer/more specific patterns first.
+_STMT_PATTERNS = [
+    ("CREATE MATERIALIZED VIEW", re.compile(r"\s*CREATE\s+MATERIALIZED\s+VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?([^\s(]+)", re.IGNORECASE)),
+    ("DROP MATERIALIZED VIEW",   re.compile(r"\s*DROP\s+MATERIALIZED\s+VIEW\s+(?:IF\s+EXISTS\s+)?([^\s,;]+)", re.IGNORECASE)),
+    ("REFRESH MATERIALIZED VIEW",re.compile(r"\s*REFRESH\s+MATERIALIZED\s+VIEW\s+(?:CONCURRENTLY\s+)?([^\s;]+)", re.IGNORECASE)),
+    ("CREATE UNIQUE INDEX",      re.compile(r"\s*CREATE\s+UNIQUE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\S+\s+)?ON\s+([^\s(]+)", re.IGNORECASE)),
+    ("CREATE INDEX",             re.compile(r"\s*CREATE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\S+\s+)?ON\s+([^\s(]+)", re.IGNORECASE)),
+    ("DROP INDEX",               re.compile(r"\s*DROP\s+INDEX\s+(?:IF\s+EXISTS\s+)?([^\s,;]+)", re.IGNORECASE)),
+    ("CREATE VIEW",              re.compile(r"\s*CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+([^\s(]+)", re.IGNORECASE)),
+    ("DROP VIEW",                re.compile(r"\s*DROP\s+VIEW\s+(?:IF\s+EXISTS\s+)?([^\s,;]+)", re.IGNORECASE)),
+    ("VACUUM",                   re.compile(r"\s*VACUUM(?:\s+\w+)*\s+([^\s;]+)", re.IGNORECASE)),
+    ("ANALYZE",                  re.compile(r"\s*ANALYZE\s+([^\s;]+)", re.IGNORECASE)),
+    ("CHECKPOINT",               re.compile(r"\s*CHECKPOINT\b", re.IGNORECASE)),
+    ("SET",                      re.compile(r"\s*SET\s+([^\s=]+)", re.IGNORECASE)),
+]
+
+
+def _describe_statement(stmt: str) -> tuple[str, str]:
+    """Return (kind, target) for log readability.
+
+    Falls back to first keyword + truncated preview when the pattern is unknown.
+    """
+    for kind, pattern in _STMT_PATTERNS:
+        m = pattern.match(stmt)
+        if m:
+            target = m.group(1) if m.groups() else ""
+            return kind, target
+    # Unknown statement — show first 60 chars on one line
+    preview = re.sub(r"\s+", " ", stmt)[:60]
+    return "(other)", preview
+
+
 # ---------------------------------------------------------------------------
 # Runner class
 # ---------------------------------------------------------------------------
@@ -127,15 +173,42 @@ class SQLScriptRunner:
 
     def connect(self):
         try:
-            self.conn = psycopg2.connect(self.connection_string)
+            self.conn = psycopg2.connect(
+                self.connection_string,
+                # TCP keepalives — survives idle periods during long CREATE / REFRESH
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=5,
+            )
             # autocommit=True is required for REFRESH MATERIALIZED VIEW CONCURRENTLY
             # (which cannot run inside a transaction block). It also works cleanly
             # for all DDL statements (CREATE/DROP MATERIALIZED VIEW, CREATE INDEX).
             self.conn.autocommit = True
-            logger.info("Connected to PostgreSQL")
+            self._tune_session()
+            logger.info("Connected to PostgreSQL (tuned session)")
         except psycopg2.Error as e:
             logger.error(f"Connection failed: {e}")
             raise
+
+    def _tune_session(self):
+        """Apply session-level GUCs sized for analytical CREATE/REFRESH workloads.
+
+        Defaults assume a VM with ~16 GB RAM. Override per environment via the
+        listed PG_* env vars without editing this file.
+        """
+        gucs = {
+            "work_mem":                       os.getenv("PG_WORK_MEM",         "512MB"),
+            "maintenance_work_mem":           os.getenv("PG_MAINT_WORK_MEM",   "2GB"),
+            "max_parallel_workers_per_gather": os.getenv("PG_PARALLEL_WORKERS", "2"),
+            "statement_timeout":              os.getenv("PG_STATEMENT_TIMEOUT", "4h"),
+            "lock_timeout":                   os.getenv("PG_LOCK_TIMEOUT",      "5min"),
+            "idle_in_transaction_session_timeout": os.getenv("PG_IDLE_TIMEOUT", "10min"),
+        }
+        with self.conn.cursor() as cur:
+            for name, value in gucs.items():
+                cur.execute(f"SET {name} = %s", (value,))
+        logger.info("Session GUCs: " + ", ".join(f"{k}={v}" for k, v in gucs.items()))
 
     def disconnect(self):
         if self.conn and not self.conn.closed:
@@ -163,23 +236,65 @@ class SQLScriptRunner:
 
         success = True
         executed = 0
+        file_t0 = time.perf_counter()
+        slow_threshold = float(os.getenv("PG_SLOW_LOG_SECONDS", "5"))
+        verbose = os.getenv("PG_VERBOSE_LOG", "0") == "1"
 
         with self.conn.cursor() as cursor:
             for i, stmt in enumerate(statements, 1):
+                kind, target = _describe_statement(stmt)
+                label = f"[{i:>3}/{len(statements)}] {kind:<22} {target}"
+
+                # Pre-statement log so a hung statement is identifiable in the log
+                logger.info(f"    {label} ...")
+
+                t0 = time.perf_counter()
                 try:
                     cursor.execute(stmt)
+                    elapsed = time.perf_counter() - t0
                     executed += 1
+
+                    # Post-statement summary — always logged if slow, only logged
+                    # at INFO if verbose, else logged at DEBUG.
+                    msg = f"    {label}  done in {elapsed:>7.1f}s"
+                    if elapsed >= slow_threshold or verbose:
+                        logger.info(msg)
+                    else:
+                        logger.debug(msg)
+
+                    # For CREATE MATERIALIZED VIEW: log row count + auto-ANALYZE
+                    # so the next phase's planner has accurate stats.
+                    mv_match = re.match(
+                        r"\s*CREATE\s+MATERIALIZED\s+VIEW\s+([^\s(]+)",
+                        stmt, re.IGNORECASE,
+                    )
+                    if mv_match:
+                        mv_name = mv_match.group(1)
+                        try:
+                            cursor.execute(f"SELECT COUNT(*) FROM {mv_name}")
+                            row_count = cursor.fetchone()[0]
+                            logger.info(f"      └─ {mv_name}: {row_count:,} rows")
+                        except psycopg2.Error as count_err:
+                            logger.debug(f"      └─ row count failed: {count_err}")
+
+                        ana_t0 = time.perf_counter()
+                        cursor.execute(f"ANALYZE {mv_name}")
+                        logger.info(f"      └─ ANALYZE {mv_name} ({time.perf_counter() - ana_t0:.1f}s)")
                 except psycopg2.Error as e:
-                    logger.error(f"  Statement {i} failed: {e}")
-                    logger.debug(f"  Statement: {stmt[:300]}")
+                    elapsed = time.perf_counter() - t0
+                    preview = re.sub(r"\s+", " ", stmt)[:200]
+                    logger.error(f"    {label}  FAILED after {elapsed:.1f}s")
+                    logger.error(f"      └─ error: {e}")
+                    logger.error(f"      └─ SQL:   {preview}")
                     if continue_on_error:
-                        logger.warning("  Continuing after error")
+                        logger.warning("    Continuing after error")
                         success = False
                     else:
-                        logger.error("  Aborting file execution")
+                        logger.error("    Aborting file execution")
                         return False
 
-        logger.info(f"  {file_path.name} — {executed}/{len(statements)} OK")
+        total = time.perf_counter() - file_t0
+        logger.info(f"  {file_path.name} — {executed}/{len(statements)} OK in {total:.1f}s")
         return success
 
     # ------------------------------------------------------------------
@@ -234,9 +349,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # Group flags
     parser.add_argument("--all",            action="store_true", help="Run all phases in order")
     parser.add_argument("--create",         action="store_true", help="Run create phases 010–015")
-    parser.add_argument("--refresh",        action="store_true", help="Run refresh phase 020")
-    parser.add_argument("--powerbi",        action="store_true", help="Run Power BI phase 030")
-    parser.add_argument("--skip-refresh",   action="store_true", help="Exclude refresh phase (020) from any group or --all run")
+    parser.add_argument("--refresh",        action="store_true", help="Run refresh phase 110")
+    parser.add_argument("--powerbi",        action="store_true", help="Run Power BI phase 020")
+    parser.add_argument("--skip-refresh",   action="store_true", help="Exclude refresh phase (110) from any group or --all run")
 
     # Individual phase flags
     for name, (_, desc) in PHASES.items():
