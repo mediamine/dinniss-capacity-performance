@@ -5,6 +5,8 @@
 -- Does NOT recreate view structure — only reloads stored data.
 --
 -- Refreshes ALL materialized views created in 010–015 in dependency order.
+-- The pbi_ wrapper views (020) are regular views and never need refreshing —
+-- they always read the latest MV snapshot after this script completes.
 -- Upstream views must be refreshed before downstream views, otherwise dependent
 -- views will read stale data from their sources.
 --

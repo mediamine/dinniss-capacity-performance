@@ -6,7 +6,7 @@
 -- with unique job-task-staff combinations. It serves as the foundation for per-day
 -- allocation calculations and staff performance metrics.
 --
--- For daily refresh use 020_refresh_materialized_views.sql instead.
+-- For daily refresh use 110_refresh_materialized_views.sql instead.
 --
 -- Creation order (dependency chain):
 --   1. 2_Staff_Task_Allocation_byDay_base  (depends on key01_calendar_date from 010_create_materialized_views.sql, KEY02_Job_Task_Staff_ID from 013_create_materialized_views.sql)

@@ -6,7 +6,7 @@
 -- reference data for staff workable days, targets, public holidays, budgets,
 -- adjustments, recorded/invoiced hours, and incentive targets.
 --
--- For daily refresh use 020_refresh_materialized_views.sql instead.
+-- For daily refresh use 110_refresh_materialized_views.sql instead.
 -- Only re-run this file when the view structure changes (adding/changing columns).
 --
 -- Creation order (dependency chain):

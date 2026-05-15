@@ -3,7 +3,7 @@
 -- =============================================================================
 -- Run AFTER 010_create_materialized_views.sql
 -- These views support invoice-related calculations and lookups.
--- For daily refresh use 020_refresh_materialized_views.sql instead.
+-- For daily refresh use 110_refresh_materialized_views.sql instead.
 --
 -- Creation order (dependency chain):
 --   1. TOCHECK_ClientDetails               (depends on clientdetails base table)

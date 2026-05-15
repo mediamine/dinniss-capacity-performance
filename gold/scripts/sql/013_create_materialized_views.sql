@@ -3,7 +3,7 @@
 -- =============================================================================
 -- Run AFTER 010_create_materialized_views.sql, 011_create_materialized_views.sql, and 012_create_materialized_views.sql
 -- These views extend job task and timesheet data with details and lookups.
--- For daily refresh use 020_refresh_materialized_views.sql instead.
+-- For daily refresh use 110_refresh_materialized_views.sql instead.
 --
 -- Creation order (dependency chain):
 --   1. 1_Job_Task_Details_Table_base       (depends on TOCHECK_ClientDetails from 011)

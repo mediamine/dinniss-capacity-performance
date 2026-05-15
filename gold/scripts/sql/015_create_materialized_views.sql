@@ -6,7 +6,7 @@
 -- with unique staff members. It serves as the foundation for per-day staff performance
 -- metrics and utilization calculations.
 --
--- For daily refresh use 020_refresh_materialized_views.sql instead.
+-- For daily refresh use 110_refresh_materialized_views.sql instead.
 --
 -- Creation order (dependency chain):
 --   1. 3_Staff_Performance_Table_base  (depends on key01_calendar_date, key03_staff_table from 010_create_materialized_views.sql)

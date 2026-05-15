@@ -6,8 +6,9 @@
 --
 -- Naming convention: pbi_ prefix to distinguish from the source MVs.
 --
--- Run order: after 010_create_materialized_views.sql
+-- Run order: after 010-015_create_materialized_views.sql
 -- Refresh:   not needed — these views always read the latest MV snapshot.
+--            Daily MV refresh runs in 110_refresh_materialized_views.sql.
 -- =============================================================================
 
 DROP VIEW IF EXISTS "pbi_1_Job_Task_Details_Table" CASCADE;
