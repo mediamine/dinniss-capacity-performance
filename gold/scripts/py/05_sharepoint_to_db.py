@@ -237,6 +237,22 @@ class PostgresDestination:
             )
             return cursor.fetchone()[0]
 
+    def is_scd2_table(self, table_name: str) -> bool:
+        """Check if table has SCD2 metadata columns (specifically _scd_is_current)."""
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                    AND table_name = %s
+                    AND column_name = '_scd_is_current'
+                )
+                """,
+                (table_name,),
+            )
+            return cursor.fetchone()[0]
+
     def drop_table(self, table_name: str):
         """Drop a table if it exists"""
         with self.conn.cursor() as cursor:
@@ -252,7 +268,7 @@ class PostgresDestination:
                 raise
 
     def create_table_from_dataframe(self, table_name: str, df: pd.DataFrame):
-        """Create a table based on DataFrame structure"""
+        """Create a table based on DataFrame structure (no SCD2 columns)."""
         if df.empty:
             logger.warning(f"DataFrame is empty for table {table_name}")
             return
@@ -276,6 +292,57 @@ class PostgresDestination:
                 logger.error(f"Error creating table {table_name}: {e}")
                 raise
 
+    def create_scd2_table(self, table_name: str, df: pd.DataFrame):
+        """Create a table with SCD2 metadata columns appended."""
+        if df.empty:
+            logger.warning(f"DataFrame is empty for table {table_name}")
+            return
+
+        col_definitions = []
+        for col_name, dtype in df.dtypes.items():
+            pg_type = self._pandas_dtype_to_postgres(dtype)
+            col_definitions.append(
+                sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(pg_type))
+            )
+
+        # SCD Type 2 metadata columns (same shape as 04_synchub_to_db.py)
+        scd_columns = [
+            sql.SQL("_scd_id BIGSERIAL PRIMARY KEY"),
+            sql.SQL("_scd_valid_from TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+            sql.SQL("_scd_valid_to TIMESTAMP"),
+            sql.SQL("_scd_is_current BOOLEAN NOT NULL DEFAULT TRUE"),
+            sql.SQL("_scd_source_hash VARCHAR(64)"),
+        ]
+
+        create_sql = sql.SQL("CREATE TABLE {} ({})").format(
+            sql.Identifier(table_name),
+            sql.SQL(", ").join(col_definitions + scd_columns),
+        )
+
+        with self.conn.cursor() as cursor:
+            try:
+                cursor.execute(create_sql)
+                # Partial index for fast current-row lookups
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE INDEX {} ON {} (_scd_is_current) WHERE _scd_is_current = TRUE"
+                    ).format(
+                        sql.Identifier(f"idx_{table_name}_current"),
+                        sql.Identifier(table_name),
+                    )
+                )
+                # Index on source hash for the membership check in sync_scd2_table_full_row
+                cursor.execute(
+                    sql.SQL("CREATE INDEX {} ON {} (_scd_source_hash)").format(
+                        sql.Identifier(f"idx_{table_name}_hash"),
+                        sql.Identifier(table_name),
+                    )
+                )
+                logger.info(f"Created SCD2 table: {table_name}")
+            except psycopg2.Error as e:
+                logger.error(f"Error creating SCD2 table {table_name}: {e}")
+                raise
+
     def _pandas_dtype_to_postgres(self, dtype) -> str:
         """Map pandas dtype to PostgreSQL type"""
         dtype_str = str(dtype)
@@ -293,7 +360,7 @@ class PostgresDestination:
             return "TEXT"
 
     def insert_dataframe(self, table_name: str, df: pd.DataFrame):
-        """Insert DataFrame data into a table"""
+        """Insert DataFrame data into a table (no SCD2 columns)."""
         if df.empty:
             logger.warning(f"No data to insert into {table_name}")
             return
@@ -315,53 +382,165 @@ class PostgresDestination:
                 logger.error(f"Error inserting data into {table_name}: {e}")
                 raise
 
-    def create_view(self, table_name: str, df: pd.DataFrame):
-        """Create a view over the table using the last segment of the table name"""
+    @staticmethod
+    def calculate_row_hash(row) -> str:
+        """MD5 hash of a row's values. Treats None and NaN identically as 'NULL'."""
+        parts = []
+        for v in row:
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                parts.append("NULL")
+            else:
+                parts.append(str(v))
+        return hashlib.md5("|".join(parts).encode()).hexdigest()
+
+    def sync_scd2_table_full_row(self, table_name: str, df: pd.DataFrame):
+        """SCD Type 2 sync using full-row hash as the natural key.
+
+        Excel data has no explicit primary key, so we treat each unique row as
+        an entity identified by the hash of all its column values. On each run:
+          - Rows present in source AND in destination (matching hash) → stay current.
+          - Rows in destination but not in source → marked _scd_is_current=FALSE,
+            _scd_valid_to=CURRENT_TIMESTAMP.
+          - Rows in source but not in destination → inserted as _scd_is_current=TRUE.
+
+        An edit to an existing row therefore appears as one expire + one insert,
+        since the hash changes when any column value changes.
+        """
+        if df.empty:
+            logger.warning(f"No data to sync into {table_name}")
+            return
+
+        # Replace NaN with None for consistent hashing and insertion
+        df = df.where(pd.notnull(df), None)
+        columns = list(df.columns)
+
+        # Build hash → row-tuple map for the source. Duplicate source rows
+        # collapse naturally (same hash → same key).
+        source_hashes = {}
+        for row_tuple in df.itertuples(index=False, name=None):
+            row_hash = self.calculate_row_hash(row_tuple)
+            source_hashes[row_hash] = row_tuple
+
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                sql.SQL(
+                    "SELECT _scd_source_hash, _scd_id FROM {} WHERE _scd_is_current = TRUE"
+                ).format(sql.Identifier(table_name))
+            )
+            current_dest = {row[0]: row[1] for row in cursor.fetchall()}
+
+            source_hash_set = set(source_hashes.keys())
+            dest_hash_set = set(current_dest.keys())
+
+            to_insert_hashes = source_hash_set - dest_hash_set
+            to_expire_hashes = dest_hash_set - source_hash_set
+            unchanged_count = len(source_hash_set & dest_hash_set)
+
+            # Expire rows that disappeared from source
+            if to_expire_hashes:
+                expire_ids = [current_dest[h] for h in to_expire_hashes]
+                cursor.execute(
+                    sql.SQL(
+                        "UPDATE {} SET _scd_is_current = FALSE, _scd_valid_to = CURRENT_TIMESTAMP "
+                        "WHERE _scd_id = ANY(%s)"
+                    ).format(sql.Identifier(table_name)),
+                    (expire_ids,),
+                )
+                logger.info(f"Expired {len(to_expire_hashes)} rows no longer present in source")
+
+            # Insert rows newly seen in source
+            if to_insert_hashes:
+                insert_data = [
+                    list(source_hashes[h]) + [h] for h in to_insert_hashes
+                ]
+                insert_sql = sql.SQL(
+                    "INSERT INTO {} ({}, _scd_source_hash) VALUES %s"
+                ).format(
+                    sql.Identifier(table_name),
+                    sql.SQL(", ").join([sql.Identifier(col) for col in columns]),
+                )
+                execute_values(cursor, insert_sql, insert_data)
+                logger.info(f"Inserted {len(to_insert_hashes)} new rows")
+
+            logger.info(
+                f"SCD2 sync summary for {table_name}: "
+                f"unchanged={unchanged_count}, new={len(to_insert_hashes)}, "
+                f"expired={len(to_expire_hashes)}"
+            )
+
+    def create_view(self, table_name: str, df: pd.DataFrame, scd2: bool = False):
+        """Create a view over the table using the last segment of the table name.
+
+        When scd2=True, the view filters _scd_is_current = TRUE so downstream
+        consumers see only the latest snapshot. Otherwise it is a plain SELECT.
+        """
         view_name = table_name.removeprefix("excel_")
         columns = list(df.columns)
 
         with self.conn.cursor() as cursor:
             try:
-                create_view_sql = sql.SQL(
-                    "CREATE OR REPLACE VIEW {} AS SELECT {} FROM {}"
-                ).format(
-                    sql.Identifier(view_name),
-                    sql.SQL(", ").join([sql.Identifier(col) for col in columns]),
-                    sql.Identifier(table_name),
-                )
+                if scd2:
+                    create_view_sql = sql.SQL(
+                        "CREATE OR REPLACE VIEW {} AS SELECT {} FROM {} WHERE _scd_is_current = TRUE"
+                    ).format(
+                        sql.Identifier(view_name),
+                        sql.SQL(", ").join([sql.Identifier(col) for col in columns]),
+                        sql.Identifier(table_name),
+                    )
+                else:
+                    create_view_sql = sql.SQL(
+                        "CREATE OR REPLACE VIEW {} AS SELECT {} FROM {}"
+                    ).format(
+                        sql.Identifier(view_name),
+                        sql.SQL(", ").join([sql.Identifier(col) for col in columns]),
+                        sql.Identifier(table_name),
+                    )
                 cursor.execute(create_view_sql)
-                logger.info(f"Created view: {view_name}")
+                logger.info(f"Created view: {view_name} (scd2={scd2})")
             except psycopg2.Error as e:
                 logger.error(f"Error creating view {view_name}: {e}")
                 raise
 
-    def sync_table(self, table_name: str, df: pd.DataFrame, drop_and_recreate: bool = True):
-        """
-        Sync DataFrame to table
+    def sync_table(self, table_name: str, df: pd.DataFrame, drop_and_recreate: bool = False):
+        """Sync DataFrame to table.
 
         Args:
-            table_name: Name of table to sync
-            df: DataFrame with data
-            drop_and_recreate: If True, drop and recreate table. If False, only create if missing.
+            table_name: destination table name (excel_<sheet_name>)
+            df: DataFrame to sync
+            drop_and_recreate:
+              - True:  drop + recreate as a plain table, INSERT all rows. No SCD2
+                       history is kept. Use for initial bulk load or resets.
+              - False: SCD Type 2 mode (default). Tracks row history via full-row
+                       MD5 hash; only the latest snapshot is exposed via the view.
+                       Existing plain (non-SCD2) tables are auto-rebuilt as SCD2.
         """
         try:
             table_name = self._normalize_table_name(table_name)
-            logger.info(f"Syncing table: {table_name}")
+            logger.info(f"Syncing table: {table_name} (drop_and_recreate={drop_and_recreate})")
 
             if drop_and_recreate:
                 self.drop_table(table_name)
                 self.create_table_from_dataframe(table_name, df)
                 self.insert_dataframe(table_name, df)
+                self.create_view(table_name, df, scd2=False)
             else:
-                # Only create if table doesn't exist
-                if not self.table_exists(table_name):
-                    self.create_table_from_dataframe(table_name, df)
-                self.insert_dataframe(table_name, df)
+                # If a non-SCD2 table exists from a prior run, rebuild it as SCD2.
+                # This is one-time data loss but converts the table to the new shape.
+                if self.table_exists(table_name) and not self.is_scd2_table(table_name):
+                    logger.warning(
+                        f"Table {table_name} exists without SCD2 columns. "
+                        "Dropping and recreating as SCD2 — existing rows will be lost."
+                    )
+                    self.drop_table(table_name)
 
-            self.create_view(table_name, df)
+                if not self.table_exists(table_name):
+                    self.create_scd2_table(table_name, df)
+
+                self.sync_scd2_table_full_row(table_name, df)
+                self.create_view(table_name, df, scd2=True)
 
             self.conn.commit()
-            logger.info(f"Successfully synced table: {table_name} ({len(df)} rows)")
+            logger.info(f"Successfully synced table: {table_name} ({len(df)} source rows)")
         except Exception as e:
             self.conn.rollback()
             logger.error(f"Failed to sync table {table_name}: {e}")
@@ -389,7 +568,7 @@ def sync_excel_to_postgres(
     file_url: str,
     postgres_dest: PostgresDestination,
     table_prefix: str = "",
-    drop_and_recreate: bool = True,
+    drop_and_recreate: bool = False,
 ):
     """
     Sync an Excel file from public URL to PostgreSQL
@@ -435,7 +614,7 @@ def sync_multiple_files(
     file_urls: List[str],
     postgres_dest: PostgresDestination,
     table_prefix: str = "",
-    drop_and_recreate: bool = True,
+    drop_and_recreate: bool = False,
 ):
     """Sync multiple Excel files to PostgreSQL"""
     total_files = len(file_urls)
@@ -467,7 +646,8 @@ def main():
     EXCEL_FILE_URLS = os.getenv("EXCEL_FILE_URLS", "")
 
     TABLE_PREFIX_EXCEL = os.getenv("TABLE_PREFIX_EXCEL", "")
-    DROP_AND_RECREATE = os.getenv("DROP_AND_RECREATE", "true").lower() == "true"
+    # Default false → SCD2 mode (track history). Set true to force a fresh rebuild.
+    DROP_AND_RECREATE = os.getenv("DROP_AND_RECREATE", "false").lower() == "true"
     SYNC_SCHEDULE = os.getenv("SYNC_SCHEDULE", "0 2 * * *")  # Default: 2 AM daily
 
     # Validate configuration
