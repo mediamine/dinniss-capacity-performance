@@ -79,6 +79,29 @@ def get_tables(conn) -> List[str]:
         return []
 
 
+def get_matviews(conn) -> List[str]:
+    """Get list of all user-defined materialized views in the database.
+
+    pg_views and pg_tables do not list materialized views, so self-contained MVs
+    (built from VALUES/unnest with no raw-table dependency) survive table-CASCADE
+    drops. Querying pg_matviews ensures they get cleaned up too.
+    """
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT schemaname, matviewname
+                FROM pg_matviews
+                WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY schemaname, matviewname
+            """)
+            matviews = [f"{row[0]}.{row[1]}" for row in cursor.fetchall()]
+            logger.info(f"Found {len(matviews)} materialized views to drop")
+            return matviews
+    except psycopg2.Error as e:
+        logger.error(f"Failed to retrieve materialized views: {e}")
+        return []
+
+
 def drop_objects(conn, objects: List[str], object_type: str):
     """Drop a list of database objects (views or tables)."""
     for obj in objects:
@@ -109,10 +132,16 @@ def main():
     try:
         conn = get_connection()
 
-        # Drop views first (to avoid dependency issues)
+        # Drop regular views first (to avoid dependency issues)
         views = get_views(conn)
         if views:
             drop_objects(conn, views, "view")
+
+        # Drop materialized views — pg_views and pg_tables miss these, so
+        # self-contained MVs survive table-CASCADE drops without this step.
+        matviews = get_matviews(conn)
+        if matviews:
+            drop_objects(conn, matviews, "materialized view")
 
         # Then drop tables
         tables = get_tables(conn)
