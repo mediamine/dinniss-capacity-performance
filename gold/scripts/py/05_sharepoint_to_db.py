@@ -37,6 +37,84 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Excel schema contract
+# ---------------------------------------------------------------------------
+# What 012_create_materialized_views.sql expects each excel_* table to contain.
+# Keys are the normalized destination table names (the result of
+# _normalize_table_name applied to "excel_<sheet_name>"). Values are the cleaned
+# column names that the matview SELECT references.
+#
+# When a sync runs, columns are validated against this contract and any drift
+# (missing column, missing sheet) is surfaced as a WARNING in the log. The sync
+# itself does NOT fail — the warning is visibility, not enforcement. Catching it
+# at sync time means the SharePoint owner (or whoever renamed the column) sees
+# the impact immediately instead of discovering it hours later during the
+# 012 matview build.
+#
+# To update: change the column names below alongside 012's SELECT statements.
+# Adding a new sheet/table is just a new entry here.
+# ---------------------------------------------------------------------------
+EXPECTED_COLUMNS: Dict[str, List[str]] = {
+    "excel_budget_tracker": [
+        "month_year", "actual_gp", "gp_target",
+    ],
+    "excel_incentive_targets": [
+        "staff_name", "staff_id", "month_year", "target_billable_hours",
+        "target_recorded_2_billable_hrs", "target_allocated_2_billable_hrs",
+        "target_invoiced_2_billable_hrs", "updated_on",
+    ],
+    "excel_public_holidays": [
+        "date", "day", "holiday", "column1",
+    ],
+    "excel_recorded_invoiced_hours": [
+        "timesheet_uuid", "staff", "date", "client", "task",
+        "recorded_minutes", "invoiced_mins",
+    ],
+    "excel_staff_adjustment_sheet": [
+        "staff_name", "staff_id", "startofmonth", "adjustmentfactor", "updated_on",
+    ],
+    "excel_staff_target_sheet": [
+        "staff_name", "staff_id", "startofmonth", "targetutilisation",
+        "targetdinnissinternalefficiency", "completedtaskefficiency",
+        "coachingtarget", "targetpotentialprofitability",
+        "targetactualprofitability",
+    ],
+    "excel_workable_days": [
+        "staffname", "staffid", "day_of_week", "day_name", "working_day",
+        "adjustment_factor", "updated_on",
+    ],
+}
+
+
+def _validate_columns(table_name: str, actual_columns: List[str]) -> None:
+    """Compare actual columns against the EXPECTED_COLUMNS contract.
+
+    Logs WARNING for any expected column that is missing from the source — these
+    will cause 012_create_materialized_views.sql to fail with
+    'column "<name>" does not exist'. Logs INFO for extra columns (harmless,
+    just unused). Returns silently if no contract is registered for the table.
+    """
+    expected = EXPECTED_COLUMNS.get(table_name)
+    if expected is None:
+        return
+    actual_set = set(actual_columns)
+    expected_set = set(expected)
+    missing = expected_set - actual_set
+    extra = actual_set - expected_set
+    if missing:
+        logger.warning(
+            f"SCHEMA DRIFT — {table_name}: missing expected columns {sorted(missing)}. "
+            f"012_create_materialized_views.sql will FAIL on this table until either "
+            f"the Excel header is restored or the SQL SELECT is updated. "
+            f"Actual columns: {sorted(actual_set)}"
+        )
+    if extra:
+        logger.info(
+            f"{table_name}: extra columns not used by 012: {sorted(extra)}"
+        )
+
+
 class PublicFileDownloader:
     """Download publicly accessible files from web URLs"""
 
@@ -518,6 +596,10 @@ class PostgresDestination:
             table_name = self._normalize_table_name(table_name)
             logger.info(f"Syncing table: {table_name} (drop_and_recreate={drop_and_recreate})")
 
+            # Compare cleaned source columns against what 012 expects, log warnings
+            # for any drift. Does not block the sync.
+            _validate_columns(table_name, list(df.columns))
+
             if drop_and_recreate:
                 self.drop_table(table_name)
                 self.create_table_from_dataframe(table_name, df)
@@ -595,10 +677,26 @@ def sync_excel_to_postgres(
             logger.warning(f"No data found in Excel file: {file_url}")
             return
 
-        # Sync each sheet to a table
+        # Sync each sheet to a table. Track destination tables actually written
+        # so we can later compare against EXPECTED_COLUMNS keys.
+        synced_tables: List[str] = []
         for sheet_name, df in sheets_data.items():
             table_name = f"{table_prefix}{sheet_name}"
             postgres_dest.sync_table(table_name, df, drop_and_recreate)
+            synced_tables.append(postgres_dest._normalize_table_name(table_name))
+
+        # Surface any tables that 012 expects but this sync did not produce
+        # (e.g. sheet was blank → skipped, sheet was renamed → mismatch).
+        expected_tables = set(EXPECTED_COLUMNS.keys())
+        missing_tables = expected_tables - set(synced_tables)
+        if missing_tables:
+            logger.warning(
+                f"SCHEMA DRIFT — expected tables not produced by this sync: "
+                f"{sorted(missing_tables)}. The corresponding Excel sheet was "
+                f"either blank, renamed, or absent from the workbook. "
+                f"012_create_materialized_views.sql will fall back to empty "
+                f"placeholders for these tables on next build."
+            )
 
         logger.info("=" * 80)
         logger.info(f"Excel sync completed successfully at {datetime.now()}")
