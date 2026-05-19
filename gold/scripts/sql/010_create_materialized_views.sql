@@ -148,8 +148,12 @@ SELECT
         )::DATE > '2020-04-30'::DATE
     ) AS "Is_Range_for_Invoicing"
 FROM
+    -- Calendar window: 12 months back (dashboard horizon) → +4 months forward
+    -- (forward bound preserved for upcoming task due-dates / invoicing window).
+    -- Narrowing from 2020-01-01 cuts row count ~5x and proportionally shrinks the
+    -- downstream CROSS JOIN with KEY02_Job_Task_Staff_ID in 2_Staff_Task_Allocation_byDay.
     generate_series(
-        '2020-01-01'::DATE,
+        (DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months')::DATE,
         (
             DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '4 months' - INTERVAL '1 day'
         )::DATE,
