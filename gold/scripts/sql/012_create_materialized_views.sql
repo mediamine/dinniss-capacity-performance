@@ -17,6 +17,14 @@
 --   5. EXCEL05_Staff_Adjustment_Sheet       (raw table dependency only)
 --   6. EXCEL06_Staff_Recorded_vs_Invoiced_Hours (raw table dependency only)
 --   7. excel07_staff_incentive+target_hours (raw table dependency only)
+--
+-- EMPTY-SHEET HANDLING: each section below issues a `CREATE TABLE IF NOT EXISTS`
+-- placeholder for its `excel_*` source. If `05_sharepoint_to_db.py` skipped the
+-- corresponding Excel tab (e.g. the tab was blank), this guarantees the table
+-- exists with the expected column names so the matview can still be created
+-- (returning zero rows). When the sheet is later repopulated, the 05 script
+-- detects the missing SCD2 columns via `is_scd2_table()` and rebuilds the
+-- table as a real SCD2 table with the correct pandas-derived types.
 -- =============================================================================
 -- EXCEL01_Staff_Workable_Days
 -- DAX equivalent: EXCEL01_Staff_Workable_Days
@@ -24,6 +32,10 @@
 -- Lookup table for staff workable days by day of week.
 DROP MATERIALIZED VIEW IF EXISTS EXCEL01_Staff_Workable_Days CASCADE;
 
+CREATE TABLE IF NOT EXISTS excel_workable_days (
+    staffname text, staffid text, day_of_week text, day_name text,
+    working_day text, adjustment_factor text, updated_on text
+);
 
 CREATE MATERIALIZED VIEW EXCEL01_Staff_Workable_Days AS
 SELECT
@@ -50,6 +62,12 @@ CREATE INDEX ON EXCEL01_Staff_Workable_Days ("Day of Week");
 -- Lookup table for staff performance targets by month (utilisation, efficiency, profitability).
 DROP MATERIALIZED VIEW IF EXISTS EXCEL02_Staff_Target_Sheet CASCADE;
 
+CREATE TABLE IF NOT EXISTS excel_staff_target_sheet (
+    staff_name text, staff_id text, startofmonth text,
+    targetutilisation text, targetdinnissinternalefficiency text,
+    completedtaskefficiency text, coachingtarget text,
+    targetpotentialprofitability text, targetactualprofitability text
+);
 
 CREATE MATERIALIZED VIEW EXCEL02_Staff_Target_Sheet AS
 SELECT
@@ -78,6 +96,9 @@ CREATE INDEX ON EXCEL02_Staff_Target_Sheet ("StartOfMonth");
 -- Lookup table for public holidays (by date and holiday name).
 DROP MATERIALIZED VIEW IF EXISTS EXCEL03_Public_Holidays CASCADE;
 
+CREATE TABLE IF NOT EXISTS excel_public_holidays (
+    "date" text, "day" text, holiday text, column1 text
+);
 
 CREATE MATERIALIZED VIEW EXCEL03_Public_Holidays AS
 SELECT
@@ -101,6 +122,9 @@ CREATE INDEX ON EXCEL03_Public_Holidays ("Holiday");
 -- Lookup table for budget tracking with actual vs target Gross Profit (GP) by month.
 DROP MATERIALIZED VIEW IF EXISTS EXCEL04_Budget_Tracker CASCADE;
 
+CREATE TABLE IF NOT EXISTS excel_budget_tracker (
+    month_year text, actual_gp text, gp_target text
+);
 
 CREATE MATERIALIZED VIEW EXCEL04_Budget_Tracker AS
 SELECT
@@ -120,12 +144,16 @@ CREATE INDEX ON EXCEL04_Budget_Tracker ("Month & Year");
 -- Lookup table for staff adjustment factors applied by month.
 DROP MATERIALIZED VIEW IF EXISTS EXCEL05_Staff_Adjustment_Sheet CASCADE;
 
+CREATE TABLE IF NOT EXISTS excel_staff_adjustment_sheet (
+    staff_name text, staff_id text, startofmonth text,
+    adjustmentfactor text, updated_on text
+);
 
 CREATE MATERIALIZED VIEW EXCEL05_Staff_Adjustment_Sheet AS
 SELECT
-    "staffname" AS "StaffName",
+    "staff_name" AS "StaffName",
     "staff_id" AS "Staff.ID",
-    "month"::date AS "Month",
+    "startofmonth"::date AS "Month",
     "adjustmentfactor"::numeric AS "AdjustmentFactor",
     "updated_on"::date AS "Updated_On"
 FROM
@@ -144,6 +172,10 @@ CREATE INDEX ON EXCEL05_Staff_Adjustment_Sheet ("Month");
 -- Lookup table for recorded vs invoiced hours by timesheet entry (for reconciliation).
 DROP MATERIALIZED VIEW IF EXISTS EXCEL06_Staff_Recorded_vs_Invoiced_Hours CASCADE;
 
+CREATE TABLE IF NOT EXISTS excel_recorded_invoiced_hours (
+    timesheet_uuid text, staff text, "date" text, client text, task text,
+    recorded_minutes text, invoiced_mins text
+);
 
 CREATE MATERIALIZED VIEW EXCEL06_Staff_Recorded_vs_Invoiced_Hours AS
 SELECT
@@ -173,6 +205,12 @@ CREATE INDEX ON EXCEL06_Staff_Recorded_vs_Invoiced_Hours ("Date");
 -- Lookup table for staff incentive targets and billable hours performance targets by month.
 DROP MATERIALIZED VIEW IF EXISTS "excel07_staff_incentive+target_hours" CASCADE;
 
+CREATE TABLE IF NOT EXISTS excel_incentive_targets (
+    staff_name text, staff_id text, month_year text,
+    target_billable_hours text, target_recorded_2_billable_hrs text,
+    target_allocated_2_billable_hrs text, target_invoiced_2_billable_hrs text,
+    updated_on text
+);
 
 CREATE MATERIALIZED VIEW "excel07_staff_incentive+target_hours" AS
 SELECT
