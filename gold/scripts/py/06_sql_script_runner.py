@@ -196,10 +196,17 @@ class SQLScriptRunner:
 
         Defaults assume a VM with ~16 GB RAM. Override per environment via the
         listed PG_* env vars without editing this file.
+
+        Note on the 2 GB cap: PostgreSQL on Windows caps `work_mem` and
+        `maintenance_work_mem` at 2097151 kB (~2 GB - 1 KB) due to a 32-bit
+        signed-int limit in the memory accounting. We default to "2047MB"
+        which stays under that cap on Windows and is essentially identical
+        to 2 GB performance-wise on Linux. Linux users wanting more can
+        override via PG_MAINT_WORK_MEM=4GB (or higher).
         """
         gucs = {
             "work_mem":                       os.getenv("PG_WORK_MEM",         "512MB"),
-            "maintenance_work_mem":           os.getenv("PG_MAINT_WORK_MEM",   "2GB"),
+            "maintenance_work_mem":           os.getenv("PG_MAINT_WORK_MEM",   "2047MB"),
             "max_parallel_workers_per_gather": os.getenv("PG_PARALLEL_WORKERS", "2"),
             "statement_timeout":              os.getenv("PG_STATEMENT_TIMEOUT", "4h"),
             "lock_timeout":                   os.getenv("PG_LOCK_TIMEOUT",      "5min"),
@@ -207,7 +214,17 @@ class SQLScriptRunner:
         }
         with self.conn.cursor() as cur:
             for name, value in gucs.items():
-                cur.execute(f"SET {name} = %s", (value,))
+                try:
+                    cur.execute(f"SET {name} = %s", (value,))
+                except psycopg2.Error as e:
+                    # If a user-supplied env var exceeds platform limits
+                    # (e.g. PG_MAINT_WORK_MEM=2GB on Windows), surface a clear
+                    # message instead of a generic "connection failed".
+                    logger.error(
+                        f"Failed to SET {name}={value}: {e}. "
+                        f"On Windows the work_mem / maintenance_work_mem cap is 2097151 kB (~2 GB - 1 KB)."
+                    )
+                    raise
         logger.info("Session GUCs: " + ", ".join(f"{k}={v}" for k, v in gucs.items()))
 
     def disconnect(self):
