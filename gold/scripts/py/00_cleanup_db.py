@@ -1,10 +1,29 @@
 #!/usr/bin/env python3
 """
-Cleanup script to remove all tables and views from the PostgreSQL database.
-This script drops all user-defined views and tables in the database to start fresh.
-Use with caution as this operation is irreversible.
+Cleanup script to remove user-defined views, materialized views, and tables
+from the PostgreSQL database.
+
+Usage:
+  # Drop everything (views + matviews + tables), prompted for confirmation
+  python 00_cleanup_db.py
+
+  # Drop only views and materialized views (keep tables and SCD2 history)
+  python 00_cleanup_db.py --views --matviews
+
+  # Drop only materialized views (rebuild matview layer without touching source)
+  python 00_cleanup_db.py --matviews
+
+  # Drop only tables (will cascade-drop views that depend on them)
+  python 00_cleanup_db.py --tables
+
+  # Skip confirmation prompt (for automation)
+  python 00_cleanup_db.py --views --matviews --yes
+
+If no scope flag is given, the script drops everything (preserves prior behaviour).
+Use with caution — operations are irreversible.
 """
 
+import argparse
 import os
 import sys
 import logging
@@ -116,37 +135,69 @@ def drop_objects(conn, objects: List[str], object_type: str):
             logger.error(f"Failed to drop {object_type} {obj}: {e}")
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="00_cleanup_db.py",
+        description="Drop user-defined views, materialized views, and/or tables.",
+    )
+    # Scope flags — pick any combination. If none are passed, everything is dropped
+    # (preserves the script's original behaviour for callers that don't know about
+    # the flags).
+    parser.add_argument("--views",    action="store_true", help="Drop regular views")
+    parser.add_argument("--matviews", action="store_true", help="Drop materialized views")
+    parser.add_argument("--tables",   action="store_true", help="Drop tables (cascades to dependent views)")
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip the interactive confirmation prompt (for automation).",
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main function to perform database cleanup."""
-    logger.info("Starting database cleanup...")
+    args = _parse_args()
 
-    # Confirm action
-    confirm = input(
-        "This will drop all tables and views in the database. Are you sure? (yes/no): "
-    )
-    if confirm.lower() != "yes":
-        logger.info("Cleanup cancelled by user")
-        return
+    # If no scope flag is set, default to dropping everything (backward compatible).
+    if not (args.views or args.matviews or args.tables):
+        args.views = args.matviews = args.tables = True
+
+    scope = [name for name, flag in
+             [("views", args.views), ("materialized views", args.matviews), ("tables", args.tables)]
+             if flag]
+    logger.info(f"Starting database cleanup — scope: {', '.join(scope)}")
+
+    # Confirm action unless --yes
+    if not args.yes:
+        confirm = input(
+            f"This will drop ALL {', '.join(scope)} in the database. Are you sure? (yes/no): "
+        )
+        if confirm.lower() != "yes":
+            logger.info("Cleanup cancelled by user")
+            return
 
     conn = None
     try:
         conn = get_connection()
 
         # Drop regular views first (to avoid dependency issues)
-        views = get_views(conn)
-        if views:
-            drop_objects(conn, views, "view")
+        if args.views:
+            views = get_views(conn)
+            if views:
+                drop_objects(conn, views, "view")
 
         # Drop materialized views — pg_views and pg_tables miss these, so
         # self-contained MVs survive table-CASCADE drops without this step.
-        matviews = get_matviews(conn)
-        if matviews:
-            drop_objects(conn, matviews, "materialized view")
+        if args.matviews:
+            matviews = get_matviews(conn)
+            if matviews:
+                drop_objects(conn, matviews, "materialized view")
 
-        # Then drop tables
-        tables = get_tables(conn)
-        if tables:
-            drop_objects(conn, tables, "table")
+        # Then drop tables (cascade will catch any remaining dependent views)
+        if args.tables:
+            tables = get_tables(conn)
+            if tables:
+                drop_objects(conn, tables, "table")
 
         logger.info("Database cleanup completed successfully")
 

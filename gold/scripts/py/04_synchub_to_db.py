@@ -5,6 +5,7 @@ SyncHub (SQL Server) to PostgreSQL SCD Type 2 Sync
 Connects to SyncHub's SQL Server database and syncs to PostgreSQL with full history tracking.
 """
 
+import argparse
 import os
 import sys
 import logging
@@ -387,6 +388,69 @@ class PostgresSCD2Destination:
                 logger.error(f"Error creating view {view_name}: {e}")
                 raise
 
+    def recreate_current_views_for_existing_tables(self, table_prefix: str = "synchub_") -> int:
+        """Recreate the per-table 'current' views over existing SCD2 tables.
+
+        Reads column metadata from information_schema.columns, filters out SCD2
+        metadata columns (those starting with `_scd_`), then calls
+        create_current_view() for each matching table. Does NOT contact SyncHub
+        or sync any data — just restores the view layer over what's already in
+        Postgres.
+
+        Useful after `00_cleanup_db.py --views` has dropped these views; lets
+        you recover without a full source-system round-trip.
+        """
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                  AND table_name LIKE %s
+                ORDER BY table_name
+                """,
+                (f"{table_prefix}%",),
+            )
+            tables = [row[0] for row in cursor.fetchall()]
+
+        logger.info(
+            f"Found {len(tables)} tables matching '{table_prefix}%' for view recreation"
+        )
+
+        recreated = 0
+        for table_name in tables:
+            with self.conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = %s
+                      AND column_name NOT LIKE %s
+                    ORDER BY ordinal_position
+                    """,
+                    (table_name, r"\_scd\_%"),
+                )
+                cols = [{"name": row[0]} for row in cursor.fetchall()]
+
+            if not cols:
+                logger.warning(
+                    f"{table_name}: no non-SCD2 columns found, skipping view"
+                )
+                continue
+
+            try:
+                self.create_current_view(table_name, cols)
+                self.conn.commit()
+                recreated += 1
+            except psycopg2.Error as e:
+                logger.error(f"Failed to recreate view for {table_name}: {e}")
+                self.conn.rollback()
+
+        logger.info(f"Recreated {recreated}/{len(tables)} current views")
+        return recreated
+
     def sync_scd2_table(
         self,
         table_name: str,
@@ -632,7 +696,45 @@ def scd2_sync(
 def main():
     """Main entry point"""
 
-    # Parse SyncHub SQL Server connection details
+    parser = argparse.ArgumentParser(
+        prog="04_synchub_to_db.py",
+        description="SCD2 sync from SyncHub (SQL Server) to PostgreSQL.",
+    )
+    parser.add_argument(
+        "--recreate-views-only",
+        action="store_true",
+        help=(
+            "Skip the SyncHub data sync; just recreate the per-table 'current' "
+            "views over existing synchub_* SCD2 tables. Only POSTGRES_CONNECTION "
+            "and TABLE_PREFIX env vars are required. Useful after a "
+            "00_cleanup_db.py --views run."
+        ),
+    )
+    args = parser.parse_args()
+
+    POSTGRES_CONNECTION = os.getenv("POSTGRES_CONNECTION")
+    TABLE_PREFIX = os.getenv("TABLE_PREFIX", "synchub_")
+
+    # Views-only path — skip SyncHub entirely
+    if args.recreate_views_only:
+        if not POSTGRES_CONNECTION:
+            logger.error("POSTGRES_CONNECTION is required for --recreate-views-only")
+            sys.exit(1)
+
+        logger.info("=" * 80)
+        logger.info(f"Recreate-views-only mode at {datetime.now()}")
+        logger.info(f"Target table prefix: {TABLE_PREFIX}")
+        logger.info("=" * 80)
+
+        postgres_dest = PostgresSCD2Destination(POSTGRES_CONNECTION)
+        try:
+            postgres_dest.connect()
+            postgres_dest.recreate_current_views_for_existing_tables(TABLE_PREFIX)
+        finally:
+            postgres_dest.disconnect()
+        return
+
+    # Full sync path — needs everything
     SYNCHUB_SERVER = os.getenv(
         "SYNCHUB_SERVER"
     )  # e.g., synchub-io.database.windows.net
@@ -640,14 +742,11 @@ def main():
     SYNCHUB_USERNAME = os.getenv("SYNCHUB_USERNAME")
     SYNCHUB_PASSWORD = os.getenv("SYNCHUB_PASSWORD")
 
-    POSTGRES_CONNECTION = os.getenv("POSTGRES_CONNECTION")
-
     SCHEMAS_TO_SYNC = (
         os.getenv("SCHEMAS_TO_SYNC", "").split(",")
         if os.getenv("SCHEMAS_TO_SYNC")
         else None
     )
-    TABLE_PREFIX = os.getenv("TABLE_PREFIX", "synchub_")
     DEFAULT_PRIMARY_KEY = os.getenv("DEFAULT_PRIMARY_KEY", "id")
     CREATE_VIEWS = os.getenv("CREATE_VIEWS", "true").lower() == "true"
     DROP_AND_RECREATE = os.getenv("DROP_AND_RECREATE", "false").lower() == "true"

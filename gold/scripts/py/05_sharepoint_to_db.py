@@ -7,6 +7,7 @@ and persists the data to a PostgreSQL database. Each Excel tab becomes a separat
 Works with files that can be accessed without authentication (incognito browser works).
 """
 
+import argparse
 import os
 import sys
 import logging
@@ -579,6 +580,72 @@ class PostgresDestination:
                 logger.error(f"Error creating view {view_name}: {e}")
                 raise
 
+    def recreate_current_views_for_existing_tables(self, table_prefix: str = "excel_") -> int:
+        """Recreate the per-table views over existing excel_* tables.
+
+        Reads column metadata from information_schema.columns, filters out SCD2
+        metadata columns, detects SCD2 vs plain layout via is_scd2_table(), and
+        calls create_view() for each matching table. Does NOT download or parse
+        Excel — just restores the view layer over what's already in Postgres.
+
+        Useful after `00_cleanup_db.py --views` has dropped these views; lets
+        you recover without re-downloading from SharePoint.
+        """
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                  AND table_name LIKE %s
+                ORDER BY table_name
+                """,
+                (f"{table_prefix}%",),
+            )
+            tables = [row[0] for row in cursor.fetchall()]
+
+        logger.info(
+            f"Found {len(tables)} tables matching '{table_prefix}%' for view recreation"
+        )
+
+        recreated = 0
+        for table_name in tables:
+            with self.conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = %s
+                      AND column_name NOT LIKE %s
+                    ORDER BY ordinal_position
+                    """,
+                    (table_name, r"\_scd\_%"),
+                )
+                source_cols = [row[0] for row in cursor.fetchall()]
+
+            if not source_cols:
+                logger.warning(
+                    f"{table_name}: no non-SCD2 columns found, skipping view"
+                )
+                continue
+
+            scd2 = self.is_scd2_table(table_name)
+            # create_view() reads only df.columns; an empty frame with the right
+            # column names is sufficient to recreate the view definition.
+            placeholder_df = pd.DataFrame(columns=source_cols)
+            try:
+                self.create_view(table_name, placeholder_df, scd2=scd2)
+                self.conn.commit()
+                recreated += 1
+            except psycopg2.Error as e:
+                logger.error(f"Failed to recreate view for {table_name}: {e}")
+                self.conn.rollback()
+
+        logger.info(f"Recreated {recreated}/{len(tables)} excel_* views")
+        return recreated
+
     def sync_table(self, table_name: str, df: pd.DataFrame, drop_and_recreate: bool = False):
         """Sync DataFrame to table.
 
@@ -737,13 +804,49 @@ def sync_multiple_files(
 def main():
     """Main entry point"""
 
+    parser = argparse.ArgumentParser(
+        prog="05_sharepoint_to_db.py",
+        description="Sync public SharePoint/OneDrive Excel files to PostgreSQL.",
+    )
+    parser.add_argument(
+        "--recreate-views-only",
+        action="store_true",
+        help=(
+            "Skip downloading and parsing Excel; just recreate views over "
+            "existing excel_* tables in Postgres. Only POSTGRES_CONNECTION and "
+            "TABLE_PREFIX_EXCEL env vars are required. Useful after a "
+            "00_cleanup_db.py --views run."
+        ),
+    )
+    args = parser.parse_args()
+
     # Configuration from environment variables
     POSTGRES_CONNECTION = os.getenv("POSTGRES_CONNECTION")
-
-    # Excel file URL(s) - supports multiple comma-separated URLs
-    EXCEL_FILE_URLS = os.getenv("EXCEL_FILE_URLS", "")
-
     TABLE_PREFIX_EXCEL = os.getenv("TABLE_PREFIX_EXCEL", "")
+
+    # Views-only path — skip Excel/SharePoint entirely
+    if args.recreate_views_only:
+        if not POSTGRES_CONNECTION:
+            logger.error("POSTGRES_CONNECTION is required for --recreate-views-only")
+            sys.exit(1)
+
+        # Default prefix when not set — matches what 012 expects
+        prefix = TABLE_PREFIX_EXCEL or "excel_"
+        logger.info("=" * 80)
+        logger.info(f"Recreate-views-only mode at {datetime.now()}")
+        logger.info(f"Target table prefix: {prefix}")
+        logger.info("=" * 80)
+
+        postgres_dest = PostgresDestination(POSTGRES_CONNECTION)
+        try:
+            postgres_dest.connect()
+            postgres_dest.recreate_current_views_for_existing_tables(prefix)
+        finally:
+            postgres_dest.disconnect()
+        return
+
+    # Full sync path
+    EXCEL_FILE_URLS = os.getenv("EXCEL_FILE_URLS", "")
     # Default false → SCD2 mode (track history). Set true to force a fresh rebuild.
     DROP_AND_RECREATE = os.getenv("DROP_AND_RECREATE", "false").lower() == "true"
     SYNC_SCHEDULE = os.getenv("SYNC_SCHEDULE", "0 2 * * *")  # Default: 2 AM daily
