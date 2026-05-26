@@ -212,6 +212,13 @@ class SQLScriptRunner:
             "lock_timeout":                   os.getenv("PG_LOCK_TIMEOUT",      "5min"),
             "idle_in_transaction_session_timeout": os.getenv("PG_IDLE_TIMEOUT", "10min"),
         }
+        # Custom application GUC consumed by key01_calendar_date in
+        # 010_create_materialized_views.sql. Only set when the env var is
+        # present so the SQL falls back to its built-in default otherwise.
+        calendar_start = os.getenv("CALENDAR_START_DATE")
+        if calendar_start:
+            gucs["app.calendar_start_date"] = calendar_start
+
         with self.conn.cursor() as cur:
             for name, value in gucs.items():
                 try:

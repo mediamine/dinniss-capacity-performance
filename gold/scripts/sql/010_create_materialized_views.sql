@@ -148,12 +148,15 @@ SELECT
         )::DATE > '2020-04-30'::DATE
     ) AS "Is_Range_for_Invoicing"
 FROM
-    -- Calendar window: 12 months back (dashboard horizon) → +4 months forward
-    -- (forward bound preserved for upcoming task due-dates / invoicing window).
-    -- Narrowing from 2020-01-01 cuts row count ~5x and proportionally shrinks the
-    -- downstream CROSS JOIN with KEY02_Job_Task_Staff_ID in 2_Staff_Task_Allocation_byDay.
+    -- Calendar window: fixed start (default 2026-01-01) → CURRENT_DATE + 4 months.
+    -- Start date is overridable via the CALENDAR_START_DATE env var, which
+    -- 06_sql_script_runner.py forwards as the PostgreSQL session GUC
+    -- app.calendar_start_date. When unset, the default below is used.
     generate_series(
-        (DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months')::DATE,
+        COALESCE(
+            NULLIF(current_setting('app.calendar_start_date', true), '')::DATE,
+            '2026-01-01'::DATE
+        ),
         (
             DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '4 months' - INTERVAL '1 day'
         )::DATE,
